@@ -7,9 +7,3 @@ mod context;
 mod extension;
 
 pub use self::extension::{DeflateHandler, DeflateBuilder, DeflateSettings};
-
-
-
-
-
-

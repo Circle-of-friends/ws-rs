@@ -1,6 +1,6 @@
 use url;
 use log::LogLevel::Error as ErrorLevel;
-#[cfg(feature="ssl")]
+#[cfg(feature = "ssl")]
 use openssl::ssl::{SslMethod, SslStream, SslConnectorBuilder};
 
 use message::Message;
@@ -10,24 +10,23 @@ use handshake::{Handshake, Request, Response};
 use result::{Result, Error, Kind};
 use util::{Token, Timeout};
 
-#[cfg(feature="ssl")]
+#[cfg(feature = "ssl")]
 use util::TcpStream;
 
 
 /// The core trait of this library.
 /// Implementing this trait provides the business logic of the WebSocket application.
 pub trait Handler {
-
     // general
-
+    
     /// Called when a request to shutdown all connections has been received.
     #[inline]
     fn on_shutdown(&mut self) {
         debug!("Handler received WebSocket shutdown request.");
     }
-
+    
     // WebSocket events
-
+    
     /// Called when the WebSocket handshake is successful and the connection is open for sending
     /// and receiving messages.
     fn on_open(&mut self, shake: Handshake) -> Result<()> {
@@ -36,38 +35,39 @@ pub trait Handler {
         }
         Ok(())
     }
-
+    
     /// Called on incoming messages.
     fn on_message(&mut self, msg: Message) -> Result<()> {
         debug!("Received message {:?}", msg);
         Ok(())
     }
-
+    
     /// Called any time this endpoint receives a close control frame.
     /// This may be because the other endpoint is initiating a closing handshake,
     /// or it may be the other endpoint confirming the handshake initiated by this endpoint.
     fn on_close(&mut self, code: CloseCode, reason: &str) {
         debug!("Connection closing due to ({:?}) {}", code, reason);
     }
-
+    
     /// Called when an error occurs on the WebSocket.
     fn on_error(&mut self, err: Error) {
         // Ignore connection reset errors by default, but allow library clients to see them by
         // overriding this method if they want
         if let Kind::Io(ref err) = err.kind {
             if let Some(104) = err.raw_os_error() {
-                return
+                return;
             }
         }
-
+        
         error!("{:?}", err);
         if !log_enabled!(ErrorLevel) {
-            println!("Encountered an error: {}\nEnable a logger to see more information.", err);
+            println!("Encountered an error: {}\nEnable a logger to see more information.",
+                     err);
         }
     }
-
+    
     // handshake events
-
+    
     /// A method for handling the low-level workings of the request portion of the WebSocket
     /// handshake.
     ///
@@ -95,7 +95,7 @@ pub trait Handler {
         debug!("Handler received request:\n{}", req);
         Response::from_request(req)
     }
-
+    
     /// A method for handling the low-level workings of the response portion of the WebSocket
     /// handshake.
     ///
@@ -108,9 +108,9 @@ pub trait Handler {
         debug!("Handler received response:\n{}", res);
         Ok(())
     }
-
+    
     // timeout events
-
+    
     /// Called when a timeout is triggered.
     ///
     /// This method will be called when the eventloop encounters a timeout on the specified
@@ -144,7 +144,7 @@ pub trait Handler {
         debug!("Handler received timeout token: {:?}", event);
         Ok(())
     }
-
+    
     /// Called when a timeout has been scheduled on the eventloop.
     ///
     /// This method is the hook for obtaining a Timeout object that may be used to cancel a
@@ -197,9 +197,9 @@ pub trait Handler {
         // default implementation discards the timeout handle
         Ok(())
     }
-
+    
     // frame events
-
+    
     /// A method for handling incoming frames.
     ///
     /// This method provides very low-level access to the details of the WebSocket protocol. It may
@@ -221,7 +221,7 @@ pub trait Handler {
             Ok(Some(frame))
         }
     }
-
+    
     /// A method for handling outgoing frames.
     ///
     /// This method provides very low-level access to the details of the WebSocket protocol. It may
@@ -247,9 +247,9 @@ pub trait Handler {
             Ok(Some(frame))
         }
     }
-
+    
     // constructors
-
+    
     /// A method for creating the initial handshake request for WebSocket clients.
     ///
     /// The default implementation provides conformance with the WebSocket protocol, but this
@@ -270,32 +270,35 @@ pub trait Handler {
         trace!("Handler is building request to {}.", url);
         Request::from_url(url)
     }
-
+    
     /// A method for wrapping a client TcpStream with Ssl Authentication machinery
     ///
     /// Override this method to customize how the connection is encrypted. By default
     /// this will use the Server Name Indication extension in conformance with RFC6455.
     #[inline]
-    #[cfg(feature="ssl")]
-    fn upgrade_ssl_client(&mut self, stream: TcpStream, url: &url::Url) -> Result<SslStream<TcpStream>>
-    {
+    #[cfg(feature = "ssl")]
+    fn upgrade_ssl_client(&mut self,
+                          stream: TcpStream,
+                          url: &url::Url)
+                          -> Result<SslStream<TcpStream>> {
         let domain = try!(url.domain().ok_or(Error::new(
             Kind::Protocol,
             format!("Unable to parse domain from {}. Needed for SSL.", url))));
         let connector = try!(SslConnectorBuilder::new(SslMethod::tls()).map_err(|e| {
-            Error::new(Kind::Internal, format!("Failed to upgrade client to SSL: {}", e))
-        })).build();
+            Error::new(Kind::Internal,
+                       format!("Failed to upgrade client to SSL: {}", e))
+        }))
+            .build();
         connector.connect(domain, stream).map_err(Error::from)
     }
-
+    
     /// A method for wrapping a server TcpStream with Ssl Authentication machinery
     ///
     /// Override this method to customize how the connection is encrypted. By default
     /// this method is not implemented.
     #[inline]
-    #[cfg(feature="ssl")]
-    fn upgrade_ssl_server(&mut self, _: TcpStream) -> Result<SslStream<TcpStream>>
-    {
+    #[cfg(feature = "ssl")]
+    fn upgrade_ssl_server(&mut self, _: TcpStream) -> Result<SslStream<TcpStream>> {
         unimplemented!()
     }
 }
@@ -310,6 +313,7 @@ impl<F> Handler for F
 
 mod test {
     #![allow(unused_imports, unused_variables, dead_code)]
+    
     use super::*;
     use url;
     use mio;
@@ -318,62 +322,65 @@ mod test {
     use frame;
     use message;
     use result::Result;
-
+    
     #[derive(Debug, Eq, PartialEq)]
     struct M;
+    
     impl Handler for M {
         fn on_message(&mut self, _: message::Message) -> Result<()> {
             Ok(println!("test"))
         }
-
+        
         fn on_frame(&mut self, f: frame::Frame) -> Result<Option<frame::Frame>> {
             Ok(None)
         }
     }
-
+    
     #[test]
     fn handler() {
         struct H;
-
+        
         impl Handler for H {
-
             fn on_open(&mut self, shake: Handshake) -> Result<()> {
                 assert!(shake.request.key().is_ok());
                 assert!(shake.response.key().is_ok());
                 Ok(())
             }
-
+            
             fn on_message(&mut self, msg: message::Message) -> Result<()> {
                 Ok(assert_eq!(msg, message::Message::Text(String::from("testme"))))
             }
-
+            
             fn on_close(&mut self, code: CloseCode, _: &str) {
                 assert_eq!(code, CloseCode::Normal)
             }
-
         }
-
+        
         let mut h = H;
         let url = url::Url::parse("wss://127.0.0.1:3012").unwrap();
         let req = Request::from_url(&url).unwrap();
         let res = Response::from_request(&req).unwrap();
-        h.on_open(Handshake{
+        h.on_open(Handshake {
             request: req,
             response: res,
             peer_addr: None,
             local_addr: None,
-        }).unwrap();
-        h.on_message(message::Message::Text("testme".to_owned())).unwrap();
+        })
+         .unwrap();
+        h.on_message(message::Message::Text("testme".to_owned()))
+         .unwrap();
         h.on_close(CloseCode::Normal, "");
     }
-
+    
     #[test]
     fn closure_handler() {
         let mut close = |msg| {
             assert_eq!(msg, message::Message::Binary(vec![1, 2, 3]));
             Ok(())
         };
-
-        close.on_message(message::Message::Binary(vec![1, 2, 3])).unwrap();
+        
+        close
+            .on_message(message::Message::Binary(vec![1, 2, 3]))
+            .unwrap();
     }
 }
