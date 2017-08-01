@@ -1,10 +1,9 @@
-//! Lightweight, event-driven WebSockets for Rust.
 #![allow(deprecated)]
 #![deny(
-    missing_copy_implementations,
-    trivial_casts, trivial_numeric_casts,
-    unstable_features,
-    unused_import_braces)]
+missing_copy_implementations,
+trivial_casts, trivial_numeric_casts,
+unstable_features,
+unused_import_braces)]
 
 extern crate httparse;
 extern crate mio;
@@ -14,8 +13,8 @@ extern crate url;
 extern crate slab;
 extern crate bytes;
 extern crate byteorder;
-#[cfg(feature="ssl")] extern crate openssl;
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 
 mod result;
 mod connection;
@@ -70,13 +69,13 @@ use mio::Poll;
 /// ```
 ///
 pub fn listen<A, F, H>(addr: A, factory: F) -> Result<()>
-    where
-        A: ToSocketAddrs + fmt::Debug,
-        F: FnMut(Sender) -> H,
-        H: Handler,
+                       where
+                           A: ToSocketAddrs + fmt::Debug,
+                           F: FnMut(Sender) -> H,
+                           H: Handler,
 {
-    let ws = try!(WebSocket::new(factory));
-    try!(ws.listen(addr));
+    let ws = WebSocket::new(factory)?;
+    ws.listen(addr)?;
     Ok(())
 }
 
@@ -104,19 +103,17 @@ pub fn listen<A, F, H>(addr: A, factory: F) -> Result<()>
 /// ```
 ///
 pub fn connect<U, F, H>(url: U, factory: F) -> Result<()>
-    where
-        U: Borrow<str>,
-        F: FnMut(Sender) -> H,
-        H: Handler
+                        where
+                            U: Borrow<str>,
+                            F: FnMut(Sender) -> H,
+                            H: Handler
 {
-    let mut ws = try!(WebSocket::new(factory));
-    let parsed = try!(
+    let mut ws = WebSocket::new(factory)?;
+    let parsed =
         url::Url::parse(url.borrow())
-            .map_err(|err| Error::new(
-                ErrorKind::Internal,
-                format!("Unable to parse {} as url due to {:?}", url.borrow(), err))));
-    try!(ws.connect(parsed));
-    try!(ws.run());
+            .map_err(|err| Error::new(ErrorKind::Internal, format!("Unable to parse {} as url due to {:?}", url.borrow(), err)))?;
+    ws.connect(parsed)?;
+    ws.run()?;
     Ok(())
 }
 
@@ -231,7 +228,6 @@ pub struct Settings {
 }
 
 impl Default for Settings {
-
     fn default() -> Settings {
         Settings {
             max_connections: 100,
@@ -285,11 +281,11 @@ impl<F> WebSocket<F>
     /// address it ended up binding to.
     /// After the server is succesfully bound you should start it using `run`.
     pub fn bind<A>(mut self, addr_spec: A) -> Result<WebSocket<F>>
-        where A: ToSocketAddrs
+                   where A: ToSocketAddrs
     {
         let mut last_error = Error::new(ErrorKind::Internal, "No address given");
 
-        for addr in try!(addr_spec.to_socket_addrs()) {
+        for addr in addr_spec.to_socket_addrs()? {
             if let Err(e) = self.handler.listen(&mut self.poll, &addr) {
                 error!("Unable to listen on {}", addr);
                 last_error = e;
@@ -309,7 +305,7 @@ impl<F> WebSocket<F>
     ///
     /// This method will block until the event loop finishes running.
     pub fn listen<A>(self, addr_spec: A) -> Result<WebSocket<F>>
-        where A: ToSocketAddrs
+                     where A: ToSocketAddrs
     {
         self.bind(addr_spec).and_then(|server| server.run())
     }
@@ -319,14 +315,14 @@ impl<F> WebSocket<F>
     pub fn connect(&mut self, url: url::Url) -> Result<&mut WebSocket<F>> {
         let sender = self.handler.sender();
         info!("Queuing connection to {}", url);
-        try!(sender.connect(url));
+        sender.connect(url)?;
         Ok(self)
     }
 
     /// Run the WebSocket. This will run the encapsulated event loop blocking the calling thread until
     /// the WebSocket is shutdown.
     pub fn run(mut self) -> Result<WebSocket<F>> {
-        try!(self.handler.run(&mut self.poll));
+        self.handler.run(&mut self.poll)?;
         Ok(self)
     }
 
@@ -365,10 +361,10 @@ impl Builder {
     /// Build a WebSocket using this builder and a factory.
     /// It is possible to use the same builder to create multiple WebSockets.
     pub fn build<F>(&self, factory: F) -> Result<WebSocket<F>>
-        where F: Factory
+                    where F: Factory
     {
         Ok(WebSocket {
-            poll: try!(Poll::new()),
+            poll: Poll::new()?,
             handler: io::Handler::new(factory, self.settings),
         })
     }

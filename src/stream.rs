@@ -20,7 +20,7 @@ fn map_non_block<T>(res: io::Result<T>) -> io::Result<Option<T>> {
 
 pub trait TryReadBuf: io::Read {
     fn try_read_buf<B: BufMut>(&mut self, buf: &mut B) -> io::Result<Option<usize>>
-        where Self : Sized
+                               where Self: Sized
     {
         // Reads the length of the slice supplied by buf.mut_bytes into the buffer
         // This is not guaranteed to consume an entire datagram or segment.
@@ -39,7 +39,7 @@ pub trait TryReadBuf: io::Read {
 
 pub trait TryWriteBuf: io::Write {
     fn try_write_buf<B: Buf>(&mut self, buf: &mut B) -> io::Result<Option<usize>>
-        where Self : Sized
+                             where Self: Sized
     {
         let res = map_non_block(self.write(buf.bytes()));
 
@@ -52,59 +52,53 @@ pub trait TryWriteBuf: io::Write {
 }
 
 impl<T: io::Read> TryReadBuf for T {}
+
 impl<T: io::Write> TryWriteBuf for T {}
 
 use self::Stream::*;
+
 pub enum Stream {
     Tcp(TcpStream),
 }
 
 impl Stream {
-
     pub fn tcp(stream: TcpStream) -> Stream {
         Tcp(stream)
     }
 
-    
 
     pub fn evented(&self) -> &TcpStream {
         match *self {
             Tcp(ref sock) => sock,
-          
         }
     }
 
     pub fn is_negotiating(&self) -> bool {
         match *self {
             Tcp(_) => false,
-          
         }
     }
 
     pub fn clear_negotiating(&mut self) -> Result<()> {
         match *self {
             Tcp(_) => Err(Error::new(Kind::Internal, "Attempted to clear negotiating flag on non ssl connection.")),
-      
         }
     }
 
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
         match *self {
             Tcp(ref sock) => sock.peer_addr(),
-          
         }
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         match *self {
             Tcp(ref sock) => sock.local_addr(),
-           
         }
     }
 }
 
 impl io::Read for Stream {
-
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match *self {
             Tcp(ref mut sock) => sock.read(buf),
@@ -113,11 +107,9 @@ impl io::Read for Stream {
 }
 
 impl io::Write for Stream {
-
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match *self {
             Tcp(ref mut sock) => sock.write(buf),
-            
         }
     }
 

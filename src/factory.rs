@@ -98,9 +98,7 @@ pub trait Factory {
     /// You can use this to track connections being destroyed or to finalize
     /// state that was not internally tracked by the handler.
     #[inline]
-    fn connection_lost(&mut self, _: Self::Handler) {
-    }
-
+    fn connection_lost(&mut self, _: Self::Handler) {}
 }
 
 impl<F, H> Factory for F
@@ -111,11 +109,11 @@ impl<F, H> Factory for F
     fn connection_made(&mut self, out: Sender) -> H {
         self(out)
     }
-
 }
 
 mod test {
     #![allow(unused_imports, unused_variables, dead_code)]
+
     use super::*;
     use mio;
     use communication::{Command, Sender};
@@ -127,16 +125,15 @@ mod test {
 
     #[derive(Debug, Eq, PartialEq)]
     struct M;
+
     impl Handler for M {
         fn on_message(&mut self, _: message::Message) -> Result<()> {
             Ok(println!("test"))
         }
-        
     }
 
     #[test]
     fn impl_factory() {
-
         struct X;
 
         impl Factory for X {
@@ -160,7 +157,7 @@ mod test {
         let (chn, _) = mio::channel::sync_channel(42);
 
         let mut factory = |_| {
-            |_| {Ok(())}
+            |_| { Ok(()) }
         };
 
         factory.connection_made(

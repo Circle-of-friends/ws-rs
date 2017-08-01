@@ -18,17 +18,16 @@ pub enum Message {
 }
 
 impl Message {
-
     /// Create a new text WebSocket message from a stringable.
     pub fn text<S>(string: S) -> Message
-        where S: Into<String>
+                   where S: Into<String>
     {
         Message::Text(string.into())
     }
 
     /// Create a new binary WebSocket message by converting to Vec<u8>.
     pub fn binary<B>(bin: B) -> Message
-        where B: Into<Vec<u8>>
+                     where B: Into<Vec<u8>>
     {
         Message::Binary(bin.into())
     }
@@ -86,8 +85,7 @@ impl Message {
     pub fn into_text(self) -> Result<String> {
         match self {
             Text(string) => Ok(string),
-            Binary(data) => Ok(try!(
-                String::from_utf8(data).map_err(|err| err.utf8_error()))),
+            Binary(data) => Ok(String::from_utf8(data).map_err(|err| err.utf8_error())?),
         }
     }
 
@@ -96,34 +94,30 @@ impl Message {
     pub fn as_text(&self) -> Result<&str> {
         match *self {
             Text(ref string) => Ok(string),
-            Binary(ref data) => Ok(try!(from_utf8(data))),
+            Binary(ref data) => Ok(from_utf8(data)?),
         }
     }
 }
 
 impl From<String> for Message {
-
     fn from(string: String) -> Message {
         Message::text(string)
     }
 }
 
 impl<'s> From<&'s str> for Message {
-
     fn from(string: &'s str) -> Message {
         Message::text(string)
     }
 }
 
 impl<'b> From<&'b [u8]> for Message {
-
     fn from(data: &'b [u8]) -> Message {
         Message::binary(data)
     }
 }
 
 impl From<Vec<u8>> for Message {
-
     fn from(data: Vec<u8>) -> Message {
         Message::binary(data)
     }
@@ -142,6 +136,7 @@ impl fmt::Display for Message {
 
 mod test {
     #![allow(unused_imports, unused_variables, dead_code)]
+
     use super::*;
 
     #[test]

@@ -25,9 +25,12 @@ pub enum Signal {
 
 #[derive(Debug, Clone)]
 pub struct Command {
-    token: Token,//指定发送人，
-    signal: Signal,//内容，发送的内容，
-    connection_id: u32,//连接id，
+    token: Token,
+    //指定发送人，
+    signal: Signal,
+    //内容，发送的内容，
+    connection_id: u32,
+    //连接id，
 }
 
 impl Command {
@@ -48,13 +51,12 @@ impl Command {
 #[derive(Clone)]
 pub struct Sender {
     token: Token,
-    channel: mio::channel::SyncSender<Command>,//接收方实现了mio的Evented trait 可以用来监听用epoll
+    channel: mio::channel::SyncSender<Command>,
+    //接收方实现了mio的Evented trait 可以用来监听用epoll
     connection_id: u32,
 }
 
 impl Sender {
-
-
     pub fn new(token: Token, channel: mio::channel::SyncSender<Command>, connection_id: u32) -> Sender {
         Sender {
             token: token,
@@ -70,7 +72,7 @@ impl Sender {
 
 
     pub fn send<M>(&self, msg: M) -> Result<()>
-        where M: Into<message::Message>
+                   where M: Into<message::Message>
     {
         self.channel.send(Command {
             token: self.token,
@@ -81,7 +83,7 @@ impl Sender {
 
 
     pub fn broadcast<M>(&self, msg: M) -> Result<()>
-        where M: Into<message::Message>
+                        where M: Into<message::Message>
     {
         self.channel.send(Command {
             token: ALL,
@@ -103,7 +105,7 @@ impl Sender {
     /// Send a close code and provide a descriptive reason for closing.
     #[inline]
     pub fn close_with_reason<S>(&self, code: CloseCode, reason: S) -> Result<()>
-        where S: Into<Cow<'static, str>>
+                                where S: Into<Cow<'static, str>>
     {
         self.channel.send(Command {
             token: self.token,
@@ -111,7 +113,7 @@ impl Sender {
             connection_id: self.connection_id,
         }).map_err(Error::from)
     }
-    
+
     /// Queue a new connection on this WebSocket to the specified URL.
     #[inline]
     pub fn connect(&self, url: url::Url) -> Result<()> {
@@ -159,6 +161,5 @@ impl Sender {
             connection_id: self.connection_id,
         }).map_err(Error::from)
     }
-
 }
 

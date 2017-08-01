@@ -42,10 +42,9 @@ const CONNECTION_REFUSED: i32 = 111;
 const CONNECTION_REFUSED: i32 = 61;
 
 fn url_to_addrs(url: &Url) -> Result<Vec<SocketAddr>> {
-
     let host = url.host_str();
-    if host.is_none() || ( url.scheme() != "ws" && url.scheme() != "wss" ) {
-        return Err(Error::new(Kind::Internal, format!("Not a valid websocket url: {}", url)))
+    if host.is_none() || (url.scheme() != "ws" && url.scheme() != "wss") {
+        return Err(Error::new(Kind::Internal, format!("Not a valid websocket url: {}", url)));
     }
     let host = host.unwrap();
 
@@ -61,7 +60,6 @@ enum State {
 }
 
 impl State {
-
     fn is_active(&self) -> bool {
         match *self {
             State::Active => true,
@@ -114,19 +112,16 @@ impl<F> Handler<F>
         }
     }
 
-    pub fn sender(&self ) -> Sender {
+    pub fn sender(&self) -> Sender {
         Sender::new(ALL, self.queue_tx.clone(), 0)
     }
 
     pub fn listen(&mut self, poll: &mut Poll, addr: &SocketAddr) -> Result<&mut Handler<F>> {
+        debug_assert!(self.listener.is_none(), "Attempted to listen for connections from two addresses on the same websocket.");
 
-        debug_assert!(
-            self.listener.is_none(),
-            "Attempted to listen for connections from two addresses on the same websocket.");
-
-        let tcp = try!(TcpListener::bind(addr));
+        let tcp = TcpListener::bind(addr)?;
         // TODO: consider net2 in order to set reuse_addr
-        try!(poll.register(&tcp, ALL, Ready::readable(), PollOpt::level()));
+        poll.register(&tcp, ALL, Ready::readable(), PollOpt::level())?;
         self.listener = Some(tcp);
         Ok(self)
     }
@@ -138,7 +133,6 @@ impl<F> Handler<F>
             Err(IoError::new(ErrorKind::NotFound, "Not a listening socket"))
         }
     }
-
 
 
     pub fn connect(&mut self, poll: &mut Poll, url: Url) -> Result<()> {
@@ -166,7 +160,7 @@ impl<F> Handler<F>
                 if let Some(addr) = addresses.pop() {
                     if let Ok(sock) = TcpStream::connect(&addr) {
                         if settings.tcp_nodelay {
-                            try!(sock.set_nodelay(true))
+                            sock.set_nodelay(true)?
                         }
                         entry.insert(Connection::new(tok, sock, handler, settings, connection_id));
                         break
@@ -176,7 +170,7 @@ impl<F> Handler<F>
                     return Err(
                         Error::new(
                             Kind::Internal,
-                            format!("Unable to obtain any socket address for {}", url)))
+                            format!("Unable to obtain any socket address for {}", url)));
                 }
             }
 
@@ -187,13 +181,13 @@ impl<F> Handler<F>
             let error = Error::new(Kind::Protocol, "The ssl feature is not enabled. Please enable it to use wss urls.");
             let handler = self.connections.remove(tok).unwrap().consume();
             self.factory.connection_lost(handler);
-            return Err(error)
+            return Err(error);
         }
 
         if let Err(error) = self.connections[tok].as_client(url, addresses) {
             let handler = self.connections.remove(tok).unwrap().consume();
             self.factory.connection_lost(handler);
-            return Err(error)
+            return Err(error);
         }
 
         poll.register(
@@ -210,13 +204,12 @@ impl<F> Handler<F>
     }
 
 
-
     pub fn accept(&mut self, poll: &mut Poll, sock: TcpStream) -> Result<()> {
         let factory = &mut self.factory;
         let settings = self.settings;
 
         if settings.tcp_nodelay {
-            try!(sock.set_nodelay(true))
+            sock.set_nodelay(true)?
         }
 
         let tok = {
@@ -234,9 +227,9 @@ impl<F> Handler<F>
 
         let conn = &mut self.connections[tok];
 
-        try!(conn.as_server());
+        conn.as_server()?;
         if settings.encrypt_server {
-            return Err(Error::new(Kind::Protocol, "The ssl feature is not enabled. Please enable it to use wss urls."))
+            return Err(Error::new(Kind::Protocol, "The ssl feature is not enabled. Please enable it to use wss urls."));
         }
 
 
@@ -253,7 +246,7 @@ impl<F> Handler<F>
             }
             Ok(())
         });
-    
+
         //open connection on_open() to change state
         conn.open().map_err(Error::from).or_else(|err| {
             error!("Encountered error while trying to build socket connection: {}", err);
@@ -267,8 +260,8 @@ impl<F> Handler<F>
 
     pub fn run(&mut self, poll: &mut Poll) -> Result<()> {
         trace!("Running event loop");
-        try!(poll.register(&self.queue_rx, QUEUE, Ready::readable(), PollOpt::edge() | PollOpt::oneshot()));
-        try!(poll.register(&self.timer, TIMER, Ready::readable(), PollOpt::edge()));
+        poll.register(&self.queue_rx, QUEUE, Ready::readable(), PollOpt::edge() | PollOpt::oneshot())?;
+        poll.register(&self.timer, TIMER, Ready::readable(), PollOpt::edge())?;
 
         self.state = State::Active;
         let result = self.event_loop(poll);
@@ -284,7 +277,8 @@ impl<F> Handler<F>
         let mut events = mio::Events::with_capacity(MAX_EVENTS);
         while self.state.is_active() {
             trace!("Waiting for event");
-            let nevents = match poll.poll(&mut events, None) {//监听接收事件。
+            let nevents = match poll.poll(&mut events, None) {
+                //监听接收事件。
                 Ok(nevents) => nevents,
                 Err(err) => {
                     if err.kind() == ErrorKind::Interrupted {
@@ -315,12 +309,7 @@ impl<F> Handler<F>
     #[inline]
     fn schedule(&self, poll: &mut Poll, conn: &Conn<F>) -> Result<()> {
         trace!("Scheduling connection to {} as {:?}", conn.socket().peer_addr().map(|addr| addr.to_string()).unwrap_or("UNKNOWN".into()), conn.events());
-        Ok(try!(poll.reregister(
-            conn.socket(),
-            conn.token(),
-            conn.events(),
-            PollOpt::edge() | PollOpt::oneshot()
-        )))
+        Ok(poll.reregister(conn.socket(), conn.token(), conn.events(), PollOpt::edge() | PollOpt::oneshot())?)
     }
 
     fn shutdown(&mut self) {
@@ -357,7 +346,6 @@ impl<F> Handler<F>
                 Ok::<(), Error>(())
             }).unwrap()
         }
-
     }
 
     #[inline]
@@ -388,20 +376,20 @@ impl<F> Handler<F>
             ALL => {
                 if events.is_readable() {
                     match self.listener.as_ref()
-                        .expect("No listener provided for server socket connections")
-                        .accept()
-                    {
-                        Ok((sock, addr)) => {
-                            info!("Accepted a new tcp connection from {}.", addr);
-                            if let Err(err) = self.accept(poll, sock) {
-                                error!("Unable to build socket connection {:?}", err);
-                                if self.settings.panic_on_new_connection {
-                                    panic!("Unable to build socket connection {:?}", err);
+                                       .expect("No listener provided for server socket connections")
+                                       .accept()
+                        {
+                            Ok((sock, addr)) => {
+                                info!("Accepted a new tcp connection from {}.", addr);
+                                if let Err(err) = self.accept(poll, sock) {
+                                    error!("Unable to build socket connection {:?}", err);
+                                    if self.settings.panic_on_new_connection {
+                                        panic!("Unable to build socket connection {:?}", err);
+                                    }
                                 }
                             }
+                            Err(err) => error!("Encountered an error {:?} while accepting tcp connection.", err),
                         }
-                        Err(err) => error!("Encountered an error {:?} while accepting tcp connection.", err),
-                    }
                 }
             }
             TIMER => {
@@ -409,7 +397,8 @@ impl<F> Handler<F>
                     self.handle_timeout(poll, t);
                 }
             }
-            QUEUE => {//接受服务的发的数据，服务发的数据都是通过chanel一起发的。
+            QUEUE => {
+                //接受服务的发的数据，服务发的数据都是通过chanel一起发的。
                 for _ in 0..MESSAGES_PER_TICK {
                     match self.queue_rx.try_recv() {
                         Ok(cmd) => self.handle_queue(poll, cmd),
@@ -418,12 +407,14 @@ impl<F> Handler<F>
                 }
                 let _ = poll.reregister(&self.queue_rx, QUEUE, Ready::readable(), PollOpt::edge() | PollOpt::oneshot());
             }
-            _ => {//接收对方发来过的数据。
+            _ => {
+                //接收对方发来过的数据。
                 let active = {
                     let conn_events = self.connections[token].events();
 
                     if (events & conn_events).is_readable() {
-                        if let Err(err) = self.connections[token].read() {//读数据，
+                        if let Err(err) = self.connections[token].read() {
+                            //读数据，
                             trace!("Encountered error while reading: {}", err);
                             if let Kind::Io(ref err) = err.kind {
                                 if let Some(errno) = err.raw_os_error() {
@@ -441,8 +432,8 @@ impl<F> Handler<F>
                                                     self.factory.connection_lost(handler);
                                                     Ok::<(), Error>(())
                                                 }).unwrap();
-                                                return
-                                            },
+                                                return;
+                                            }
                                             Err(err) => {
                                                 trace!("Encountered error while trying to reset connection: {:?}", err);
                                             }
@@ -458,7 +449,8 @@ impl<F> Handler<F>
                     let conn_events = self.connections[token].events();
 
                     if (events & conn_events).is_writable() {
-                        if let Err(err) = self.connections[token].write() {//write data
+                        if let Err(err) = self.connections[token].write() {
+                            //write data
                             trace!("Encountered error while writing: {}", err);
                             if let Kind::Io(ref err) = err.kind {
                                 if let Some(errno) = err.raw_os_error() {
@@ -476,8 +468,8 @@ impl<F> Handler<F>
                                                     self.factory.connection_lost(handler);
                                                     Ok::<(), Error>(())
                                                 }).unwrap();
-                                                return
-                                            },
+                                                return;
+                                            }
                                             Err(err) => {
                                                 trace!("Encountered error while trying to reset connection: {:?}", err);
                                             }
@@ -491,8 +483,7 @@ impl<F> Handler<F>
                     }
 
                     // connection events may have changed
-                    self.connections[token].events().is_readable() ||
-                        self.connections[token].events().is_writable()
+                    self.connections[token].events().is_readable() || self.connections[token].events().is_writable()
                 };
 
                 self.check_active(poll, active, token)
@@ -505,7 +496,8 @@ impl<F> Handler<F>
             SYSTEM => {
                 // Scaffolding for system events such as internal timeouts
             }
-            ALL => {//broadcasting message with type
+            ALL => {
+                //broadcasting message with type
                 let mut dead = Vec::with_capacity(self.connections.len());
 
                 match cmd.into_signal() {
@@ -548,35 +540,35 @@ impl<F> Handler<F>
                             }
                             error!("Unable to establish connection to {}: {:?}", url, err);
                         }
-                        return
+                        return;
                     }
                     Signal::Shutdown => self.shutdown(),
                     Signal::Timeout { delay, token: event } => {
                         match self.timer.set_timeout(Duration::from_millis(delay),
-                            Timeout {
-                                connection: ALL,
-                                event: event,
-                            }).map_err(Error::from)
-                        {
-                            Ok(timeout) => {
-                                for conn in self.connections.iter_mut() {
-                                    if let Err(err) = conn.new_timeout(event, timeout.clone()) {
-                                        conn.error(err)
+                                                     Timeout {
+                                                         connection: ALL,
+                                                         event: event,
+                                                     }).map_err(Error::from)
+                            {
+                                Ok(timeout) => {
+                                    for conn in self.connections.iter_mut() {
+                                        if let Err(err) = conn.new_timeout(event, timeout.clone()) {
+                                            conn.error(err)
+                                        }
                                     }
                                 }
-                            }
-                            Err(err) => {
-                                if self.settings.panic_on_timeout {
-                                    panic!("Unable to schedule timeout: {:?}", err);
+                                Err(err) => {
+                                    if self.settings.panic_on_timeout {
+                                        panic!("Unable to schedule timeout: {:?}", err);
+                                    }
+                                    error!("Unable to schedule timeout: {:?}", err);
                                 }
-                                error!("Unable to schedule timeout: {:?}", err);
                             }
-                        }
-                        return
+                        return;
                     }
                     Signal::Cancel(timeout) => {
                         self.timer.cancel_timeout(&timeout);
-                        return
+                        return;
                     }
                 }
 
@@ -590,8 +582,9 @@ impl<F> Handler<F>
                     self.connections[token].error(err)
                 }
             }
-            
-            token => {//single socket send message
+
+            token => {
+                //single socket send message
                 let connection_id = cmd.connection_id();
                 match cmd.into_signal() {
                     Signal::Message(msg) => {
@@ -657,38 +650,38 @@ impl<F> Handler<F>
                                 error!("Unable to establish connection to {}: {:?}", url, err);
                             }
                         }
-                        return
+                        return;
                     }
                     Signal::Shutdown => self.shutdown(),
                     Signal::Timeout { delay, token: event } => {
                         match self.timer.set_timeout(Duration::from_millis(delay),
-                            Timeout {
-                                connection: token,
-                                event: event,
-                            }).map_err(Error::from)
-                        {
-                            Ok(timeout) => {
-                                if let Some(conn) = self.connections.get_mut(token) {
-                                    if let Err(err) = conn.new_timeout(event, timeout) {
-                                        conn.error(err)
+                                                     Timeout {
+                                                         connection: token,
+                                                         event: event,
+                                                     }).map_err(Error::from)
+                            {
+                                Ok(timeout) => {
+                                    if let Some(conn) = self.connections.get_mut(token) {
+                                        if let Err(err) = conn.new_timeout(event, timeout) {
+                                            conn.error(err)
+                                        }
+                                    } else {
+                                        trace!("Connection disconnected while pong signal was waiting in the queue.")
                                     }
-                                } else {
-                                    trace!("Connection disconnected while pong signal was waiting in the queue.")
+                                }
+                                Err(err) => {
+                                    if let Some(conn) = self.connections.get_mut(token) {
+                                        conn.error(err)
+                                    } else {
+                                        trace!("Connection disconnected while pong signal was waiting in the queue.")
+                                    }
                                 }
                             }
-                            Err(err) => {
-                                if let Some(conn) = self.connections.get_mut(token) {
-                                    conn.error(err)
-                                } else {
-                                    trace!("Connection disconnected while pong signal was waiting in the queue.")
-                                }
-                            }
-                        }
-                        return
+                        return;
                     }
                     Signal::Cancel(timeout) => {
                         self.timer.cancel_timeout(&timeout);
-                        return
+                        return;
                     }
                 }
 
@@ -712,7 +705,7 @@ impl<F> Handler<F>
                 conn.events().is_readable() || conn.events().is_writable()
             } else {
                 trace!("Connection disconnected while timeout was waiting.");
-                return
+                return;
             }
         };
         self.check_active(poll, active, connection);
