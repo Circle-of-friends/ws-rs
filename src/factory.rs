@@ -118,7 +118,6 @@ mod test {
     use mio;
     use communication::{Command, Sender};
     use protocol::CloseCode;
-    use frame;
     use message;
     use handler::Handler;
     use result::Result;

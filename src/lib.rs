@@ -38,7 +38,6 @@ pub use result::{Result, Error};
 pub use result::Kind as ErrorKind;
 pub use message::Message;
 pub use communication::Sender;
-pub use frame::Frame;
 pub use protocol::{CloseCode, OpCode};
 
 
@@ -192,33 +191,6 @@ pub struct Settings {
     /// Whether to shutdown the eventloop when an interrupt is received.
     /// Default: true
     pub shutdown_on_interrupt: bool,
-    /// The WebSocket protocol requires frames sent from client endpoints to be masked as a
-    /// security and sanity precaution. Enforcing this requirement, which may be removed at some
-    /// point may cause incompatibilities. If you need the extra security, set this to true.
-    /// Default: false
-    pub masking_strict: bool,
-    /// The WebSocket protocol requires clients to verify the key returned by a server to ensure
-    /// that the server and all intermediaries can perform the protocol. Verifying the key will
-    /// consume processing time and other resources with the benifit that we can fail the
-    /// connection early. The default in WS-RS is to accept any key from the server and instead
-    /// fail late if a protocol error occurs. Change this setting to enable key verification.
-    /// Default: false
-    pub key_strict: bool,
-    /// The WebSocket protocol requires clients to perform an opening handshake using the HTTP
-    /// GET method for the request. However, since only WebSockets are supported on the connection,
-    /// verifying the method of handshake requests is not always necessary. To enforce the
-    /// requirement that handshakes begin with a GET method, set this to true.
-    /// Default: false
-    pub method_strict: bool,
-    /// Indicate whether server connections should use ssl encryption when accepting connections.
-    /// Setting this to true means that clients should use the `wss` scheme to connect to this
-    /// server. Note that using this flag will in general necessitate overriding the
-    /// `Handler::upgrade_ssl_server` method in order to provide the details of the ssl context. It may be
-    /// simpler for most users to use a reverse proxy such as nginx to provide server side
-    /// encryption.
-    ///
-    /// Default: false
-    pub encrypt_server: bool,
     /// Disables Nagle's algorithm.
     /// Usually tcp socket tries to accumulate packets to send them all together (every 200ms).
     /// When enabled socket will try to send packet as fast as possible.
@@ -249,10 +221,6 @@ impl Default for Settings {
             panic_on_io: false,
             panic_on_timeout: false,
             shutdown_on_interrupt: true,
-            masking_strict: false,
-            key_strict: false,
-            method_strict: false,
-            encrypt_server: false,
             tcp_nodelay: false
         }
     }

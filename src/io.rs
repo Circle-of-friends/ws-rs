@@ -228,17 +228,15 @@ impl<F> Handler<F>
         let conn = &mut self.connections[tok];
 
         conn.as_server()?;
-        if settings.encrypt_server {
-            return Err(Error::new(Kind::Protocol, "The ssl feature is not enabled. Please enable it to use wss urls."));
-        }
 
-
-        poll.register(
+        let ret: Result<()> = poll.register(
             conn.socket(),
             conn.token(),
             conn.events(),
             PollOpt::edge() | PollOpt::oneshot(),
-        ).map_err(Error::from).or_else(|err| {
+        ).map_err(|err| {
+            Error::from(err)
+        }).or_else(|err| {
             error!("Encountered error while trying to build socket connection: {}", err);
             conn.error(err);
             if settings.panic_on_new_connection {
@@ -246,6 +244,7 @@ impl<F> Handler<F>
             }
             Ok(())
         });
+        ret?;
 
         //open connection on_open() to change state
         conn.open().map_err(Error::from).or_else(|err| {
@@ -517,22 +516,7 @@ impl<F> Handler<F>
                             }
                         }
                     }
-                    Signal::Ping(data) => {
-                        trace!("Broadcasting ping");
-                        for conn in self.connections.iter_mut() {
-                            if let Err(err) = conn.send_ping(data.clone()) {
-                                dead.push((conn.token(), err))
-                            }
-                        }
-                    }
-                    Signal::Pong(data) => {
-                        trace!("Broadcasting pong");
-                        for conn in self.connections.iter_mut() {
-                            if let Err(err) = conn.send_pong(data.clone()) {
-                                dead.push((conn.token(), err))
-                            }
-                        }
-                    }
+
                     Signal::Connect(url) => {
                         if let Err(err) = self.connect(poll, url.clone()) {
                             if self.settings.panic_on_new_connection {
@@ -613,32 +597,7 @@ impl<F> Handler<F>
                             trace!("Connection disconnected while close signal was waiting in the queue.")
                         }
                     }
-                    Signal::Ping(data) => {
-                        if let Some(conn) = self.connections.get_mut(token) {
-                            if conn.connection_id() == connection_id {
-                                if let Err(err) = conn.send_ping(data) {
-                                    conn.error(err)
-                                }
-                            } else {
-                                trace!("Connection disconnected while ping signal was waiting in the queue.")
-                            }
-                        } else {
-                            trace!("Connection disconnected while ping signal was waiting in the queue.")
-                        }
-                    }
-                    Signal::Pong(data) => {
-                        if let Some(conn) = self.connections.get_mut(token) {
-                            if conn.connection_id() == connection_id {
-                                if let Err(err) = conn.send_pong(data) {
-                                    conn.error(err)
-                                }
-                            } else {
-                                trace!("Connection disconnected while pong signal was waiting in the queue.")
-                            }
-                        } else {
-                            trace!("Connection disconnected while pong signal was waiting in the queue.")
-                        }
-                    }
+
                     Signal::Connect(url) => {
                         if let Err(err) = self.connect(poll, url.clone()) {
                             if let Some(conn) = self.connections.get_mut(token) {

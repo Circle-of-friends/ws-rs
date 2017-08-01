@@ -117,7 +117,6 @@ mod test {
     use url;
     use mio;
     use protocol::CloseCode;
-    use frame;
     use message;
     use result::Result;
 

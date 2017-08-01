@@ -10,11 +10,7 @@ use mio::{Token, Ready};
 use mio::timer::Timeout;
 use mio::tcp::TcpStream;
 
-#[cfg(feature = "ssl")]
-use openssl::ssl::HandshakeError;
-
 use message::Message;
-use frame::Frame;
 use protocol::{CloseCode, OpCode};
 use result::{Result, Error, Kind};
 use handler::Handler;
@@ -115,7 +111,6 @@ impl<H> Connection<H>
             ),
             endpoint: Endpoint::Server,
             events: Ready::empty(),
-            fragments: VecDeque::with_capacity(settings.fragments_capacity),
             in_buffer: Cursor::new(Vec::with_capacity(settings.in_buffer_capacity)),
             out_buffer: Cursor::new(Vec::with_capacity(settings.out_buffer_capacity)),
             handler: handler,
@@ -126,6 +121,7 @@ impl<H> Connection<H>
     }
 
     pub fn open(&mut self) -> Result<()> {
+        info!("----accept socket--{:?}",self.token);
         if let Connecting(ref req, ref res) = replace(&mut self.state, Open) {
             trace!("Finished writing handshake response to {}", self.peer_addr());
             return Ok(());
@@ -140,11 +136,11 @@ impl<H> Connection<H>
 
     pub fn as_client(&mut self, url: url::Url, addrs: Vec<SocketAddr>) -> Result<()> {
         if let Connecting(ref mut req_buf, _) = self.state {
-            let req = self.handler.build_request(&url)?;
             self.addresses = addrs;
             self.events.insert(Ready::writable());
             self.endpoint = Endpoint::Client(url);
-            req.format(req_buf.get_mut())
+            //            req.format(req_buf.get_mut())
+            Ok(())
         } else {
             Err(Error::new(
                 Kind::Internal,
@@ -356,7 +352,7 @@ impl<H> Connection<H>
                     }
                     _ => {
                         if self.settings.panic_on_io {
-                            panic!("Panicking on io error -- {}", err);
+                            panic!("Panicking on io error  {}", err);
                         }
                         self.handler.on_error(err);
                         self.disconnect()
@@ -390,6 +386,7 @@ impl<H> Connection<H>
             let res = if self.state.is_connecting() {
                 trace!("Ready to read handshake from {}.", self.peer_addr());
                 //                self.read_handshake()
+                Ok(())
             } else {
                 trace!("Ready to read messages from {}.", self.peer_addr());
                 while let Some(len) = self.buffer_in()? {
@@ -416,18 +413,15 @@ impl<H> Connection<H>
 
     fn read_data(&mut self) -> Result<()> {
         //读取数据。
-        let mut buffer = String::new();
-        while let Ok(data_size) = self.in_buffer.read(&mut buffer) {
-            match self.state {
-                // Ignore data received after receiving close frame
-                RespondingClose | FinishedClose => continue,
-                _ => (),
+        let mut buffer = Vec::new();
+        match self.in_buffer.read(&mut buffer) {
+            Ok(data_size) => {
+                let msg = Message::text((String::from_utf8(buffer).map_err(|err| err.utf8_error()))?);
+                self.handler.on_message(msg)?;
+                Ok(())
             }
-
-            let msg = Message::text((String::from_utf8(buffer).map_err(|err| err.utf8_error()))?);
-            self.handler.on_message(msg)?;
+            Err(err) => Err(Error::from(err))
         }
-        Ok(())
     }
 
     pub fn write(&mut self) -> Result<()> {
@@ -439,6 +433,7 @@ impl<H> Connection<H>
             let res = if self.state.is_connecting() {
                 trace!("Ready to write handshake to {}.", self.peer_addr());
                 //                self.write_handshake()
+                Ok(())
             } else {
                 trace!("Ready to write messages to {}.", self.peer_addr());
 
@@ -484,7 +479,7 @@ impl<H> Connection<H>
         let data = msg.into_data();
         self.buffer_frame(data).map_err(|err| {
             err
-        }).map(|| {
+        }).map(|_| {
             self.check_events();
             ()
         })
@@ -537,10 +532,15 @@ impl<H> Connection<H>
 
     fn buffer_frame(&mut self, mut frame: Vec<u8>) -> Result<()> {
         self.check_buffer_out(&frame)?;
-        trace!("Buffering frame to {}:\n{}", self.peer_addr(), frame);
+        trace!("Buffering frame to {}:\n{:?}", self.peer_addr(), frame);
 
-        self.out_buffer.write(&frame);//TODO 读写数据。
+        //TODO 读写数据。
+        match self.out_buffer.write(&frame) {
+            Ok(buffer_size) => { Ok(()) }//TODO
+            Err(err) => Err(Error::from(err))
+        }
     }
+
 
     fn check_buffer_out(&mut self, frame: &Vec<u8>) -> Result<()> {
         if self.out_buffer.get_ref().capacity() <= self.out_buffer.get_ref().len() + frame.len() {
