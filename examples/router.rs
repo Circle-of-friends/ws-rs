@@ -10,40 +10,7 @@ struct Router {
 }
 
 impl ws::Handler for Router {
-    fn on_request(&mut self, req: &ws::Request) -> ws::Result<(ws::Response)> {
-
-        // Clone the sender so that we can move it into the child handler
-        let out = self.sender.clone();
-
-        match req.resource() {
-            "/echo" => self.inner = Box::new(Echo { ws: out } ),
-
-            // Route to a data handler
-            "/data/one" => self.inner = Box::new(Data {
-                ws: out,
-                data: vec!["one", "two", "three", "four", "five"]
-            }),
-
-            // Route to another data handler
-            "/data/two" => self.inner = Box::new(Data {
-                ws: out,
-                data: vec!["いち", "二", "さん", "四", "ご"]
-            }),
-
-            // Use a closure as the child handler
-            "/closure" => self.inner = Box::new(move |msg: ws::Message| {
-                println!("Got a message on a closure handler: {}", msg);
-                out.close_with_reason(ws::CloseCode::Error, "Not Implemented.")
-            }),
-
-            // Use the default child handler, NotFound
-            _ => (),
-        }
-
-        // Delegate to the child handler
-        self.inner.on_request(req)
-    }
-
+   
     // Pass through any other methods that should be delegated to the child.
     //
     // You could probably use a macro for this if you have many different
@@ -53,7 +20,7 @@ impl ws::Handler for Router {
         self.inner.on_shutdown()
     }
 
-    fn on_open(&mut self, shake: ws::Handshake) -> ws::Result<()> {
+    fn on_open(&mut self) -> ws::Result<()> {
         self.inner.on_open(shake)
     }
 
@@ -75,13 +42,6 @@ struct NotFound;
 
 impl ws::Handler for NotFound {
 
-    fn on_request(&mut self, req: &ws::Request) -> ws::Result<(ws::Response)> {
-        // This handler responds to all requests with a 404
-        let mut res = try!(ws::Response::from_request(req));
-        res.set_status(404);
-        res.set_reason("Not Found");
-        Ok(res)
-    }
 
 }
 
@@ -108,7 +68,7 @@ struct Data {
 }
 
 impl ws::Handler for Data {
-    fn on_open(&mut self, _: ws::Handshake) -> ws::Result<()> {
+    fn on_open(&mut self) -> ws::Result<()> {
         for msg in self.data.iter() {
             try!(self.ws.send(*msg))
         }

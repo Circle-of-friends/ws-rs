@@ -17,7 +17,7 @@ use std::time::Duration;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Sender as ThreadOut;
 
-use ws::{connect, listen, CloseCode, Message, Sender, Handler, Handshake, Result};
+use ws::{connect, listen, CloseCode, Message, Sender, Handler, Result};
 
 
 fn main () {
@@ -98,7 +98,7 @@ fn main () {
 
     impl Handler for Client {
 
-        fn on_open(&mut self, _: Handshake) -> Result<()> {
+        fn on_open(&mut self) -> Result<()> {
             self.increment()
         }
 

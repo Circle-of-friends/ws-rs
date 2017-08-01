@@ -15,8 +15,6 @@ use mio::tcp::{TcpListener, TcpStream};
 
 use url::Url;
 
-#[cfg(feature="ssl")]
-use openssl::ssl::Error as SslError;
 
 use communication::{Sender, Signal, Command};
 use result::{Result, Error, Kind};
@@ -25,7 +23,7 @@ use factory::Factory;
 use util::Slab;
 use super::Settings;
 
-const QUEUE: Token = Token(usize::MAX - 3);
+const QUEUE: Token = Token(usize::MAX - 3);//接受数据方监听的fd,
 const TIMER: Token = Token(usize::MAX - 4);
 pub const ALL: Token = Token(usize::MAX - 5);
 const SYSTEM: Token = Token(usize::MAX - 6);
@@ -141,94 +139,8 @@ impl<F> Handler<F>
         }
     }
 
-    #[cfg(feature="ssl")]
-    pub fn connect(&mut self, poll: &mut Poll, url: Url) -> Result<()> {
-        let settings = self.settings;
 
-        let (tok, addresses) = {
-            let (tok, entry, connection_id, handler) = if let Some(entry) = self.connections.vacant_entry() {
-                let tok = entry.index();
-                let connection_id = self.next_connection_id;
-                self.next_connection_id = self.next_connection_id.wrapping_add(1);
-                (tok, entry, connection_id, self.factory.client_connected(Sender::new(tok, self.queue_tx.clone(), connection_id)))
-            } else {
-                return Err(Error::new(Kind::Capacity, "Unable to add another connection to the event loop."));
-            };
 
-            let mut addresses = match url_to_addrs(&url) {
-                Ok(addresses) => addresses,
-                Err(err) => {
-                    self.factory.connection_lost(handler);
-                    return Err(err);
-                }
-            };
-
-            loop {
-                if let Some(addr) = addresses.pop() {
-                    if let Ok(sock) = TcpStream::connect(&addr) {
-                        if settings.tcp_nodelay {
-                            try!(sock.set_nodelay(true))
-                        }
-                        addresses.push(addr); // Replace the first addr in case ssl fails and we fallback
-                        entry.insert(Connection::new(tok, sock, handler, settings, connection_id));
-                        break
-                    }
-                } else {
-                    self.factory.connection_lost(handler);
-                    return Err(
-                        Error::new(
-                            Kind::Internal,
-                            format!("Unable to obtain any socket address for {}", url)))
-                }
-            }
-
-            (tok, addresses)
-        };
-
-        let will_encrypt = url.scheme() == "wss";
-
-        if let Err(error) = self.connections[tok].as_client(url, addresses) {
-            let handler = self.connections.remove(tok).unwrap().consume();
-            self.factory.connection_lost(handler);
-            return Err(error)
-        }
-
-        if will_encrypt {
-            while let Err(ssl_error) = self.connections[tok].encrypt() {
-                match ssl_error.kind {
-                    Kind::Ssl(SslError::Stream(ref io_error)) => {
-                        if let Some(errno) = io_error.raw_os_error() {
-                            if errno == CONNECTION_REFUSED {
-                                if let Err(reset_error) = self.connections[tok].reset() {
-                                    trace!("Encountered error while trying to reset connection: {:?}", reset_error);
-                                } else {
-                                    continue
-                                }
-                            }
-                        }
-                    }
-                    _ => (),
-                }
-                self.connections[tok].error(ssl_error);
-                // Allow socket to be registered anyway to await hangup
-                break
-            }
-        }
-
-        poll.register(
-            self.connections[tok].socket(),
-            self.connections[tok].token(),
-            self.connections[tok].events(),
-            PollOpt::edge() | PollOpt::oneshot(),
-        ).map_err(Error::from).or_else(|err| {
-            error!("Encountered error while trying to build WebSocket connection: {}", err);
-            let handler = self.connections.remove(tok).unwrap().consume();
-            self.factory.connection_lost(handler);
-            Err(err)
-        })
-    }
-
-    #[cfg(not(feature="ssl"))]
     pub fn connect(&mut self, poll: &mut Poll, url: Url) -> Result<()> {
         let settings = self.settings;
 
@@ -297,52 +209,8 @@ impl<F> Handler<F>
         })
     }
 
-    #[cfg(feature="ssl")]
-    pub fn accept(&mut self, poll: &mut Poll, sock: TcpStream) -> Result<()> {
-        let factory = &mut self.factory;
-        let settings = self.settings;
-
-        if settings.tcp_nodelay {
-            try!(sock.set_nodelay(true))
-        }
-
-        let tok = {
-            if let Some(entry) = self.connections.vacant_entry() {
-                let tok = entry.index();
-                let connection_id = self.next_connection_id;
-                self.next_connection_id = self.next_connection_id.wrapping_add(1);
-                let handler = factory.server_connected(Sender::new(tok, self.queue_tx.clone(), connection_id));
-                entry.insert(Connection::new(tok, sock, handler, settings, connection_id));
-                tok
-            } else {
-                return Err(Error::new(Kind::Capacity, "Unable to add another connection to the event loop."));
-            }
-        };
-
-        let conn = &mut self.connections[tok];
-
-        try!(conn.as_server());
-        if settings.encrypt_server {
-            try!(conn.encrypt())
-        }
 
 
-        poll.register(
-            conn.socket(),
-            conn.token(),
-            conn.events(),
-            PollOpt::edge() | PollOpt::oneshot(),
-        ).map_err(Error::from).or_else(|err| {
-            error!("Encountered error while trying to build WebSocket connection: {}", err);
-            conn.error(err);
-            if settings.panic_on_new_connection {
-                panic!("Encountered error while trying to build WebSocket connection.");
-            }
-            Ok(())
-        })
-    }
-
-    #[cfg(not(feature="ssl"))]
     pub fn accept(&mut self, poll: &mut Poll, sock: TcpStream) -> Result<()> {
         let factory = &mut self.factory;
         let settings = self.settings;
@@ -378,10 +246,20 @@ impl<F> Handler<F>
             conn.events(),
             PollOpt::edge() | PollOpt::oneshot(),
         ).map_err(Error::from).or_else(|err| {
-            error!("Encountered error while trying to build WebSocket connection: {}", err);
+            error!("Encountered error while trying to build socket connection: {}", err);
             conn.error(err);
             if settings.panic_on_new_connection {
-                panic!("Encountered error while trying to build WebSocket connection.");
+                panic!("Encountered error while trying to build socket connection.");
+            }
+            Ok(())
+        });
+    
+        //open connection on_open() to change state
+        conn.open().map_err(Error::from).or_else(|err| {
+            error!("Encountered error while trying to build socket connection: {}", err);
+            conn.error(err);
+            if settings.panic_on_new_connection {
+                panic!("Encountered error while trying to build socket connection.");
             }
             Ok(())
         })
@@ -406,15 +284,15 @@ impl<F> Handler<F>
         let mut events = mio::Events::with_capacity(MAX_EVENTS);
         while self.state.is_active() {
             trace!("Waiting for event");
-            let nevents = match poll.poll(&mut events, None) {
+            let nevents = match poll.poll(&mut events, None) {//监听接收事件。
                 Ok(nevents) => nevents,
                 Err(err) => {
                     if err.kind() == ErrorKind::Interrupted {
                         if self.settings.shutdown_on_interrupt {
-                            error!("Websocket shutting down for interrupt.");
+                            error!("socket shutting down for interrupt.");
                             self.state = State::Inactive;
                         } else {
-                            error!("Websocket received interupt.");
+                            error!("socket received interupt.");
                         }
                         0
                     } else {
@@ -446,7 +324,7 @@ impl<F> Handler<F>
     }
 
     fn shutdown(&mut self) {
-        debug!("Received shutdown signal. WebSocket is attempting to shut down.");
+        debug!("Received shutdown signal. socket is attempting to shut down.");
         for conn in self.connections.iter_mut() {
             conn.shutdown();
         }
@@ -464,9 +342,9 @@ impl<F> Handler<F>
         // state if the handshake fails.
         if !active {
             if let Ok(addr) = self.connections[token].socket().peer_addr() {
-                debug!("WebSocket connection to {} disconnected.", addr);
+                debug!("socket connection to {} disconnected.", addr);
             } else {
-                trace!("WebSocket connection to token={:?} disconnected.", token);
+                trace!("socket connection to token={:?} disconnected.", token);
             }
             let handler = self.connections.remove(token).unwrap().consume();
             self.factory.connection_lost(handler);
@@ -492,9 +370,9 @@ impl<F> Handler<F>
         trace!("Active connections {:?}", self.connections.len());
         if self.connections.len() == 0 {
             if !self.state.is_active() {
-                debug!("Shutting down websocket server.");
+                debug!("Shutting down socket server.");
             } else if self.is_client() {
-                debug!("Shutting down websocket client.");
+                debug!("Shutting down socket client.");
                 self.factory.on_shutdown();
                 self.state = State::Inactive;
             }
@@ -510,15 +388,15 @@ impl<F> Handler<F>
             ALL => {
                 if events.is_readable() {
                     match self.listener.as_ref()
-                        .expect("No listener provided for server websocket connections")
+                        .expect("No listener provided for server socket connections")
                         .accept()
                     {
                         Ok((sock, addr)) => {
                             info!("Accepted a new tcp connection from {}.", addr);
                             if let Err(err) = self.accept(poll, sock) {
-                                error!("Unable to build WebSocket connection {:?}", err);
+                                error!("Unable to build socket connection {:?}", err);
                                 if self.settings.panic_on_new_connection {
-                                    panic!("Unable to build WebSocket connection {:?}", err);
+                                    panic!("Unable to build socket connection {:?}", err);
                                 }
                             }
                         }
@@ -531,7 +409,7 @@ impl<F> Handler<F>
                     self.handle_timeout(poll, t);
                 }
             }
-            QUEUE => {
+            QUEUE => {//接受服务的发的数据，服务发的数据都是通过chanel一起发的。
                 for _ in 0..MESSAGES_PER_TICK {
                     match self.queue_rx.try_recv() {
                         Ok(cmd) => self.handle_queue(poll, cmd),
@@ -540,12 +418,12 @@ impl<F> Handler<F>
                 }
                 let _ = poll.reregister(&self.queue_rx, QUEUE, Ready::readable(), PollOpt::edge() | PollOpt::oneshot());
             }
-            _ => {
+            _ => {//接收对方发来过的数据。
                 let active = {
                     let conn_events = self.connections[token].events();
 
                     if (events & conn_events).is_readable() {
-                        if let Err(err) = self.connections[token].read() {
+                        if let Err(err) = self.connections[token].read() {//读数据，
                             trace!("Encountered error while reading: {}", err);
                             if let Kind::Io(ref err) = err.kind {
                                 if let Some(errno) = err.raw_os_error() {
@@ -580,7 +458,7 @@ impl<F> Handler<F>
                     let conn_events = self.connections[token].events();
 
                     if (events & conn_events).is_writable() {
-                        if let Err(err) = self.connections[token].write() {
+                        if let Err(err) = self.connections[token].write() {//write data
                             trace!("Encountered error while writing: {}", err);
                             if let Kind::Io(ref err) = err.kind {
                                 if let Some(errno) = err.raw_os_error() {
@@ -627,7 +505,7 @@ impl<F> Handler<F>
             SYSTEM => {
                 // Scaffolding for system events such as internal timeouts
             }
-            ALL => {
+            ALL => {//broadcasting message with type
                 let mut dead = Vec::with_capacity(self.connections.len());
 
                 match cmd.into_signal() {
@@ -712,7 +590,8 @@ impl<F> Handler<F>
                     self.connections[token].error(err)
                 }
             }
-            token => {
+            
+            token => {//single socket send message
                 let connection_id = cmd.connection_id();
                 match cmd.into_signal() {
                     Signal::Message(msg) => {
@@ -840,40 +719,4 @@ impl<F> Handler<F>
     }
 }
 
-mod test {
-    #![allow(unused_imports, unused_variables, dead_code)]
-    use std::str::FromStr;
 
-    use url::Url;
-
-    use result::{Error, Kind};
-    use super::*;
-    use super::url_to_addrs;
-
-    #[test]
-    fn test_url_to_addrs() {
-        let ws_url = Url::from_str("ws://example.com?query=me").unwrap();
-        let wss_url = Url::from_str("wss://example.com/suburl#fragment").unwrap();
-        let bad_url = Url::from_str("http://howdy.bad.com").unwrap();
-        let no_resolve = Url::from_str("ws://bad.elucitrans.com").unwrap();
-
-        assert!(url_to_addrs(&ws_url).is_ok());
-        assert!(url_to_addrs(&ws_url).unwrap().len() > 0);
-        assert!(url_to_addrs(&wss_url).is_ok());
-        assert!(url_to_addrs(&wss_url).unwrap().len() > 0);
-
-        match url_to_addrs(&bad_url) {
-            Ok(_) => panic!("url_to_addrs accepts http urls."),
-            Err(Error { kind: Kind::Internal, details: _}) => (),  // pass
-            err => panic!("{:?}", err),
-        }
-
-        match url_to_addrs(&no_resolve) {
-            Ok(_) => panic!("url_to_addrs creates addresses for non-existent domains."),
-            Err(Error { kind: Kind::Io(_), details: _}) => (),  // pass
-            err => panic!("{:?}", err),
-        }
-
-    }
-
-}

@@ -13,7 +13,7 @@ extern crate env_logger;
 // TODO: num threads, num connections per thread, num concurrent connections per thread, num
 // messages per connection, length of message, text or binary
 
-use ws::{Builder, Settings, Sender, CloseCode, Handler, Message, Handshake, Result};
+use ws::{Builder, Settings, Sender, CloseCode, Handler, Message, Result};
 
 const CONNECTIONS: usize = 10_000; // simultaneous
 const MESSAGES: u32 = 10;
@@ -33,7 +33,7 @@ fn main () {
 
     impl Handler for Connection {
 
-        fn on_open(&mut self, _: Handshake) -> Result<()> {
+        fn on_open(&mut self) -> Result<()> {
             try!(self.out.send(MESSAGE));
             self.count += 1;
             Ok(self.time = time::precise_time_ns())

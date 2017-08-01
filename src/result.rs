@@ -8,10 +8,7 @@ use std::convert::{From, Into};
 
 use httparse;
 use mio;
-#[cfg(feature="ssl")]
-use openssl::ssl::{Error as SslError, HandshakeError as SslHandshakeError};
-#[cfg(feature="ssl")]
-type HandshakeError = SslHandshakeError<mio::tcp::TcpStream>;
+
 
 use communication::Command;
 
@@ -51,12 +48,6 @@ pub enum Kind {
     Queue(mio::channel::SendError<Command>),
     /// Indicates a failure to schedule a timeout on the EventLoop.
     Timer(mio::timer::TimerError),
-    /// Indicates a failure to perform SSL encryption.
-    #[cfg(feature="ssl")]
-    Ssl(SslError),
-    /// Indicates a failure to perform SSL encryption.
-    #[cfg(feature="ssl")]
-    SslHandshake(HandshakeError),
     /// A custom error kind for use by applications. This error kind involves extra overhead
     /// because it will allocate the memory on the heap. The WebSocket ignores such errors by
     /// default, simply passing them to the Connection Handler.
@@ -119,10 +110,6 @@ impl StdError for Error {
             Kind::Encoding(ref err)     => err.description(),
             Kind::Io(ref err)           => err.description(),
             Kind::Http(_)               => "Unable to parse HTTP",
-            #[cfg(feature="ssl")]
-            Kind::Ssl(ref err)          => err.description(),
-            #[cfg(feature="ssl")]
-            Kind::SslHandshake(ref err) => err.description(),
             Kind::Queue(_)              => "Unable to send signal on event loop",
             Kind::Timer(_)              => "Unable to schedule timeout on event loop",
             Kind::Custom(ref err)       => err.description(),
@@ -133,9 +120,6 @@ impl StdError for Error {
         match self.kind {
             Kind::Encoding(ref err) => Some(err),
             Kind::Io(ref err)       => Some(err),
-            #[cfg(feature="ssl")]
-            Kind::Ssl(ref err)      => Some(err),
-            #[cfg(feature="ssl")]
             Kind::SslHandshake(ref err)      => err.cause(),
             Kind::Custom(ref err)   => Some(err.as_ref()),
             _ => None,
@@ -194,19 +178,6 @@ impl From<Utf8Error> for Error {
     }
 }
 
-#[cfg(feature="ssl")]
-impl From<SslError> for Error {
-    fn from(err: SslError) -> Error {
-        Error::new(Kind::Ssl(err), "")
-    }
-}
-
-#[cfg(feature="ssl")]
-impl From<HandshakeError> for Error {
-    fn from(err: HandshakeError) -> Error {
-        Error::new(Kind::SslHandshake(err), "")
-    }
-}
 
 impl<B> From<Box<B>> for Error
     where B: StdError + Send + Sync + 'static

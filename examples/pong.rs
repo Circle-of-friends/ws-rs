@@ -5,7 +5,7 @@ extern crate time;
 
 use std::str::from_utf8;
 
-use ws::{listen, CloseCode, OpCode, Sender, Frame, Handler, Handshake, Message, Result, Error, ErrorKind};
+use ws::{listen, CloseCode, OpCode, Sender, Frame, Handler, Message, Result, Error, ErrorKind};
 use ws::util::{Token, Timeout};
 
 const PING: Token = Token(1);
@@ -36,7 +36,7 @@ struct Server {
 
 impl Handler for Server {
 
-    fn on_open(&mut self, _: Handshake) -> Result<()> {
+    fn on_open(&mut self) -> Result<()> {
         // schedule a timeout to send a ping every 5 seconds
         try!(self.out.timeout(5_000, PING));
         // schedule a timeout to close the connection if there is no activity for 30 seconds

@@ -8,7 +8,7 @@ struct Server {
 
 impl ws::Handler for Server {
 
-    fn on_open(&mut self, shake: ws::Handshake) -> ws::Result<()> {
+    fn on_open(&mut self) -> ws::Result<()> {
         if let Some(ip_addr) = try!(shake.remote_addr()) {
             println!("Connection opened from {}.", ip_addr)
         } else {

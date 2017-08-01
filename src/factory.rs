@@ -119,7 +119,6 @@ mod test {
     use super::*;
     use mio;
     use communication::{Command, Sender};
-    use handshake::{Request, Response, Handshake};
     use protocol::CloseCode;
     use frame;
     use message;
@@ -132,10 +131,7 @@ mod test {
         fn on_message(&mut self, _: message::Message) -> Result<()> {
             Ok(println!("test"))
         }
-
-        fn on_frame(&mut self, f: frame::Frame) -> Result<Option<frame::Frame>> {
-            Ok(None)
-        }
+        
     }
 
     #[test]

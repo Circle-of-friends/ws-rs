@@ -14,8 +14,6 @@ use io::ALL;
 pub enum Signal {
     Message(message::Message),
     Close(CloseCode, Cow<'static, str>),
-    Ping(Vec<u8>),
-    Pong(Vec<u8>),
     Connect(url::Url),
     Shutdown,
     Timeout {
@@ -27,9 +25,9 @@ pub enum Signal {
 
 #[derive(Debug, Clone)]
 pub struct Command {
-    token: Token,
-    signal: Signal,
-    connection_id: u32,
+    token: Token,//指定发送人，
+    signal: Signal,//内容，发送的内容，
+    connection_id: u32,//连接id，
 }
 
 impl Command {
@@ -46,19 +44,17 @@ impl Command {
     }
 }
 
-/// A representation of the output of the WebSocket connection. Use this to send messages to the
-/// other endpoint.
+
 #[derive(Clone)]
 pub struct Sender {
     token: Token,
-    channel: mio::channel::SyncSender<Command>,
+    channel: mio::channel::SyncSender<Command>,//接收方实现了mio的Evented trait 可以用来监听用epoll
     connection_id: u32,
 }
 
 impl Sender {
 
-    #[doc(hidden)]
-    #[inline]
+
     pub fn new(token: Token, channel: mio::channel::SyncSender<Command>, connection_id: u32) -> Sender {
         Sender {
             token: token,
@@ -67,14 +63,12 @@ impl Sender {
         }
     }
 
-    /// A Token identifying this sender within the WebSocket.
-    #[inline]
+
     pub fn token(&self) -> Token {
         self.token
     }
 
-    /// Send a message over the connection.
-    #[inline]
+
     pub fn send<M>(&self, msg: M) -> Result<()>
         where M: Into<message::Message>
     {
@@ -85,14 +79,7 @@ impl Sender {
         }).map_err(Error::from)
     }
 
-    /// Send a message to the endpoints of all connections.
-    ///
-    /// Be careful with this method. It does not discriminate between client and server connections.
-    /// If your WebSocket is only functioning as a server, then usage is simple, this method will
-    /// send a copy of the message to each connected client. However, if you have a WebSocket that
-    /// is listening for connections and is also connected to another WebSocket, this method will
-    /// broadcast a copy of the message to all the clients connected and to that WebSocket server.
-    #[inline]
+
     pub fn broadcast<M>(&self, msg: M) -> Result<()>
         where M: Into<message::Message>
     {
@@ -124,27 +111,7 @@ impl Sender {
             connection_id: self.connection_id,
         }).map_err(Error::from)
     }
-
-    /// Send a ping to the other endpoint with the given test data.
-    #[inline]
-    pub fn ping(&self, data: Vec<u8>) -> Result<()> {
-        self.channel.send(Command {
-            token: self.token,
-            signal: Signal::Ping(data),
-            connection_id: self.connection_id,
-        }).map_err(Error::from)
-    }
-
-    /// Send a pong to the other endpoint responding with the given test data.
-    #[inline]
-    pub fn pong(&self, data: Vec<u8>) -> Result<()> {
-        self.channel.send(Command {
-            token: self.token,
-            signal: Signal::Pong(data),
-            connection_id: self.connection_id,
-        }).map_err(Error::from)
-    }
-
+    
     /// Queue a new connection on this WebSocket to the specified URL.
     #[inline]
     pub fn connect(&self, url: url::Url) -> Result<()> {

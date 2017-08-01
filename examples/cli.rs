@@ -20,7 +20,6 @@ use ws::{
     CloseCode,
     Handler,
     Message,
-    Handshake,
     Result,
     Error,
     ErrorKind,
@@ -147,7 +146,7 @@ struct Client {
 
 impl Handler for Client {
 
-    fn on_open(&mut self, _: Handshake) -> Result<()> {
+    fn on_open(&mut self) -> Result<()> {
         self.thread_out
             .send(Event::Connect(self.ws_out.clone()))
             .map_err(|err| Error::new(
