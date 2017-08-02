@@ -28,11 +28,11 @@ pub trait TryReadBuf: io::Read {
         // ensure that your buffer is large enough to hold an entire segment (1532 bytes if not jumbo
         // frames)
         let res = map_non_block(self.read(unsafe { buf.bytes_mut() }));
-
+        
         if let Ok(Some(cnt)) = res {
             unsafe { buf.advance_mut(cnt); }//减去已经读的数据，并返回已经读取长度。
         }
-
+        
         res
     }
 }
@@ -42,11 +42,11 @@ pub trait TryWriteBuf: io::Write {
                              where Self: Sized
     {
         let res = map_non_block(self.write(buf.bytes()));
-
+        
         if let Ok(Some(cnt)) = res {
             buf.advance(cnt);
         }
-
+        
         res
     }
 }
@@ -65,32 +65,32 @@ impl Stream {
     pub fn tcp(stream: TcpStream) -> Stream {
         Tcp(stream)
     }
-
-
+    
+    
     pub fn evented(&self) -> &TcpStream {
         match *self {
             Tcp(ref sock) => sock,
         }
     }
-
+    
     pub fn is_negotiating(&self) -> bool {
         match *self {
             Tcp(_) => false,
         }
     }
-
+    
     pub fn clear_negotiating(&mut self) -> Result<()> {
         match *self {
             Tcp(_) => Err(Error::new(Kind::Internal, "Attempted to clear negotiating flag on non ssl connection.")),
         }
     }
-
+    
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
         match *self {
             Tcp(ref sock) => sock.peer_addr(),
         }
     }
-
+    
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         match *self {
             Tcp(ref sock) => sock.local_addr(),
@@ -112,7 +112,7 @@ impl io::Write for Stream {
             Tcp(ref mut sock) => sock.write(buf),
         }
     }
-
+    
     fn flush(&mut self) -> io::Result<()> {
         match *self {
             Tcp(ref mut sock) => sock.flush(),

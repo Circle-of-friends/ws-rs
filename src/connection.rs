@@ -429,7 +429,7 @@ impl<H> Connection<H>
                 // Start out assuming that this write will clear the whole buffer
                 self.events.remove(Ready::writable());
                 //写的数据，返回写的长度，错误码已经返回值的形式，发送给对方。
-                trace!("---------------======postions {:?}-",self.out_buffer.position());
+                trace!("---------------======postions {:?}-", self.out_buffer.position());
                 
                 if let Some(len) = try!(self.socket.try_write_buf(&mut self.out_buffer)) {
                     trace!("Wrote {} bytes to {}", len, self.peer_addr());
@@ -472,14 +472,18 @@ impl<H> Connection<H>
         self.check_buffer_out(&data)?;//检查输出buffer容量，不够则扩充容量。
         trace!("Buffering frame to {} : {:?}", self.peer_addr(), data);
         //TODO 写数据。
+        let pos = self.out_buffer.position();
+        self.out_buffer.seek(SeekFrom::End(0))?;
         match self.out_buffer.write(&data) {
-            //这里的一定是满足的。
             Ok(buffer_size) => {
                 //TODO
                 Ok(self.check_events())
             }
             Err(err) => Err(Error::from(err))
-        }
+        }?;
+        
+        self.out_buffer.seek(SeekFrom::Start(pos))?;
+        Ok(())
     }
     
     
