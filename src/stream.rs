@@ -30,7 +30,7 @@ pub trait TryReadBuf: io::Read {
         let res = map_non_block(self.read(unsafe { buf.bytes_mut() }));
 
         if let Ok(Some(cnt)) = res {
-            unsafe { buf.advance_mut(cnt); }
+            unsafe { buf.advance_mut(cnt); }//减去已经读的数据，并返回已经读取长度。
         }
 
         res

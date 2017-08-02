@@ -101,17 +101,17 @@ pub fn listen<A, F, H>(addr: A, factory: F) -> Result<()>
 /// }).unwrap()
 /// ```
 ///
-pub fn connect<U, F, H>(url: U, factory: F) -> Result<()>
+pub fn connect<F, H>(url: String, factory: F) -> Result<()>
                         where
-                            U: Borrow<str>,
                             F: FnMut(Sender) -> H,
                             H: Handler
 {
     let mut ws = WebSocket::new(factory)?;
-    let parsed =
-        url::Url::parse(url.borrow())
-            .map_err(|err| Error::new(ErrorKind::Internal, format!("Unable to parse {} as url due to {:?}", url.borrow(), err)))?;
-    ws.connect(parsed)?;
+    //    let parsed =
+    //        url::Url::parse(url.borrow())
+    //            .map_err(|err| Error::new(ErrorKind::Internal, format!("Unable to parse {} as url due to {:?}", url.borrow(), err)))?;
+    //    trace!("----{:?}---", url.borrow());
+    ws.connect(url)?;
     ws.run()?;
     Ok(())
 }
@@ -242,7 +242,7 @@ impl<F> WebSocket<F>
     pub fn new(factory: F) -> Result<WebSocket<F>> {
         Builder::new().build(factory)
     }
-
+    
     /// Consume the WebSocket and bind to the specified address.
     /// If the `addr_spec` yields multiple addresses this will return after the
     /// first successful bind. `local_addr` can be called to determine which
@@ -252,7 +252,7 @@ impl<F> WebSocket<F>
                    where A: ToSocketAddrs
     {
         let mut last_error = Error::new(ErrorKind::Internal, "No address given");
-
+        
         for addr in addr_spec.to_socket_addrs()? {
             if let Err(e) = self.handler.listen(&mut self.poll, &addr) {
                 error!("Unable to listen on {}", addr);
@@ -263,10 +263,10 @@ impl<F> WebSocket<F>
                 return Ok(self);
             }
         }
-
+        
         Err(last_error)
     }
-
+    
     /// Consume the WebSocket and listen for new connections on the specified address.
     ///
     /// # Safety
@@ -277,23 +277,31 @@ impl<F> WebSocket<F>
     {
         self.bind(addr_spec).and_then(|server| server.run())
     }
-
+    
     /// Queue an outgoing connection on this WebSocket. This method may be called multiple times,
     /// but the actual connections will not be established until `run` is called.
-    pub fn connect(&mut self, url: url::Url) -> Result<&mut WebSocket<F>> {
+//        pub fn connect(&mut self, url: url::Url) -> Result<&mut WebSocket<F>> {
+//            let sender = self.handler.sender();
+//            info!("Queuing connection to {}", url);
+//            sender.connect(url)?;
+//            Ok(self)
+//        }
+    
+    pub fn connect(&mut self, addr_spec: String) -> Result<&mut WebSocket<F>>
+    {
         let sender = self.handler.sender();
-        info!("Queuing connection to {}", url);
-        sender.connect(url)?;
+        info!("Queuing connection to {}", addr_spec);
+        sender.connect(addr_spec)?;
         Ok(self)
     }
-
+    
     /// Run the WebSocket. This will run the encapsulated event loop blocking the calling thread until
     /// the WebSocket is shutdown.
     pub fn run(mut self) -> Result<WebSocket<F>> {
         self.handler.run(&mut self.poll)?;
         Ok(self)
     }
-
+    
     /// Get a Sender that can be used to send messages on all connections.
     /// Calling `send` on this Sender is equivalent to calling `broadcast`.
     /// Calling `shutdown` on this Sender will shutdown the WebSocket even if no connections have
@@ -302,7 +310,7 @@ impl<F> WebSocket<F>
     pub fn broadcaster(&self) -> Sender {
         self.handler.sender()
     }
-
+    
     /// Get the local socket address this socket is bound to. Will return an error
     /// if the backend returns an error. Will return a `NotFound` error if
     /// this WebSocket is not a listening socket.
@@ -325,7 +333,7 @@ impl Builder {
             settings: Settings::default(),
         }
     }
-
+    
     /// Build a WebSocket using this builder and a factory.
     /// It is possible to use the same builder to create multiple WebSockets.
     pub fn build<F>(&self, factory: F) -> Result<WebSocket<F>>
@@ -336,7 +344,7 @@ impl Builder {
             handler: io::Handler::new(factory, self.settings),
         })
     }
-
+    
     /// Set the WebSocket settings to use.
     pub fn with_settings(&mut self, settings: Settings) -> &mut Builder {
         self.settings = settings;

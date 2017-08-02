@@ -10,11 +10,15 @@ use result::{Result, Error};
 use protocol::CloseCode;
 use io::ALL;
 
+use std::net::{SocketAddr, ToSocketAddrs};
+
+
 #[derive(Debug, Clone)]
-pub enum Signal {
+pub enum Signal
+{
     Message(message::Message),
     Close(CloseCode, Cow<'static, str>),
-    Connect(url::Url),
+    Connect(String),
     Shutdown,
     Timeout {
         delay: u64,
@@ -24,7 +28,8 @@ pub enum Signal {
 }
 
 #[derive(Debug, Clone)]
-pub struct Command {
+pub struct Command
+{
     token: Token,
     //指定发送人，
     signal: Signal,
@@ -33,15 +38,16 @@ pub struct Command {
     //连接id，
 }
 
-impl Command {
+impl Command
+{
     pub fn token(&self) -> Token {
         self.token
     }
-
-    pub fn into_signal(self) -> Signal {
+    
+    pub fn signal(self) -> Signal {
         self.signal
     }
-
+    
     pub fn connection_id(&self) -> u32 {
         self.connection_id
     }
@@ -49,7 +55,8 @@ impl Command {
 
 
 #[derive(Clone)]
-pub struct Sender {
+pub struct Sender
+{
     token: Token,
     channel: mio::channel::SyncSender<Command>,
     //接收方实现了mio的Evented trait 可以用来监听用epoll
@@ -64,13 +71,13 @@ impl Sender {
             connection_id: connection_id
         }
     }
-
-
+    
+    
     pub fn token(&self) -> Token {
         self.token
     }
-
-
+    
+    
     pub fn send<M>(&self, msg: M) -> Result<()>
                    where M: Into<message::Message>
     {
@@ -80,8 +87,8 @@ impl Sender {
             connection_id: self.connection_id,
         }).map_err(Error::from)
     }
-
-
+    
+    
     pub fn broadcast<M>(&self, msg: M) -> Result<()>
                         where M: Into<message::Message>
     {
@@ -91,7 +98,7 @@ impl Sender {
             connection_id: self.connection_id,
         }).map_err(Error::from)
     }
-
+    
     /// Send a close code to the other endpoint.
     #[inline]
     pub fn close(&self, code: CloseCode) -> Result<()> {
@@ -101,7 +108,7 @@ impl Sender {
             connection_id: self.connection_id,
         }).map_err(Error::from)
     }
-
+    
     /// Send a close code and provide a descriptive reason for closing.
     #[inline]
     pub fn close_with_reason<S>(&self, code: CloseCode, reason: S) -> Result<()>
@@ -113,17 +120,17 @@ impl Sender {
             connection_id: self.connection_id,
         }).map_err(Error::from)
     }
-
+    
     /// Queue a new connection on this WebSocket to the specified URL.
     #[inline]
-    pub fn connect(&self, url: url::Url) -> Result<()> {
+    pub fn connect(&self, url: String) -> Result<()> {
         self.channel.send(Command {
             token: self.token,
             signal: Signal::Connect(url),
             connection_id: self.connection_id,
         }).map_err(Error::from)
     }
-
+    
     /// Request that all connections terminate and that the WebSocket stop running.
     #[inline]
     pub fn shutdown(&self) -> Result<()> {
@@ -133,7 +140,7 @@ impl Sender {
             connection_id: self.connection_id,
         }).map_err(Error::from)
     }
-
+    
     /// Schedule a `token` to be sent to the WebSocket Handler's `on_timeout` method
     /// after `ms` milliseconds
     #[inline]
@@ -147,7 +154,7 @@ impl Sender {
             connection_id: self.connection_id,
         }).map_err(Error::from)
     }
-
+    
     /// Queue the cancellation of a previously scheduled timeout.
     ///
     /// This method is not guaranteed to prevent the timeout from occuring, because it is

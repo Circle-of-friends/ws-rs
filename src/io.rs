@@ -41,16 +41,20 @@ const CONNECTION_REFUSED: i32 = 111;
 #[cfg(windows)]
 const CONNECTION_REFUSED: i32 = 61;
 
-fn url_to_addrs(url: &Url) -> Result<Vec<SocketAddr>> {
-    let host = url.host_str();
-    if host.is_none() || (url.scheme() != "ws" && url.scheme() != "wss") {
-        return Err(Error::new(Kind::Internal, format!("Not a valid websocket url: {}", url)));
-    }
-    let host = host.unwrap();
-
-    let port = url.port_or_known_default().unwrap_or(80);
-    let mut addrs = try!((&host[..], port).to_socket_addrs()).collect::<Vec<SocketAddr>>();
-    addrs.dedup();
+fn url_to_addrs(url: &String) -> Result<Vec<SocketAddr>> {
+    //    let host = url.host_str();
+    
+    //    if host.is_none() || (url.scheme() != "ws" && url.scheme() != "wss") {
+    //        return Err(Error::new(Kind::Internal, format!("Not a valid websocket url: {}", url)));
+    //    }
+    //    let host = host.unwrap();
+    //
+    //    let port = url.port_or_known_default().unwrap_or(80);
+    //    let mut addrs = try!((&host[..], port).to_socket_addrs()).collect::<Vec<SocketAddr>>();
+    //    addrs.dedup();
+    
+    //TODO TCP address
+    let addrs = Vec::from(url.to_socket_addrs().unwrap().as_slice());
     Ok(addrs)
 }
 
@@ -111,21 +115,21 @@ impl<F> Handler<F>
             next_connection_id: 0
         }
     }
-
+    
     pub fn sender(&self) -> Sender {
         Sender::new(ALL, self.queue_tx.clone(), 0)
     }
-
+    
     pub fn listen(&mut self, poll: &mut Poll, addr: &SocketAddr) -> Result<&mut Handler<F>> {
         debug_assert!(self.listener.is_none(), "Attempted to listen for connections from two addresses on the same websocket.");
-
+        
         let tcp = TcpListener::bind(addr)?;
         // TODO: consider net2 in order to set reuse_addr
         poll.register(&tcp, ALL, Ready::readable(), PollOpt::level())?;
         self.listener = Some(tcp);
         Ok(self)
     }
-
+    
     pub fn local_addr(&self) -> ::std::io::Result<SocketAddr> {
         if let Some(ref listener) = self.listener {
             listener.local_addr()
@@ -133,11 +137,11 @@ impl<F> Handler<F>
             Err(IoError::new(ErrorKind::NotFound, "Not a listening socket"))
         }
     }
-
-
-    pub fn connect(&mut self, poll: &mut Poll, url: Url) -> Result<()> {
+    
+    
+    pub fn connect(&mut self, poll: &mut Poll, url: String) -> Result<()> {
         let settings = self.settings;
-
+        
         let (tok, addresses) = {
             let (tok, entry, connection_id, handler) = if let Some(entry) = self.connections.vacant_entry() {
                 let tok = entry.index();
@@ -147,7 +151,7 @@ impl<F> Handler<F>
             } else {
                 return Err(Error::new(Kind::Capacity, "Unable to add another connection to the event loop."));
             };
-
+            
             let mut addresses = match url_to_addrs(&url) {
                 Ok(addresses) => addresses,
                 Err(err) => {
@@ -155,14 +159,17 @@ impl<F> Handler<F>
                     return Err(err);
                 }
             };
-
+            
             loop {
                 if let Some(addr) = addresses.pop() {
                     if let Ok(sock) = TcpStream::connect(&addr) {
                         if settings.tcp_nodelay {
                             sock.set_nodelay(true)?
                         }
-                        entry.insert(Connection::new(tok, sock, handler, settings, connection_id));
+                        let mut conn = Connection::new(tok, sock, handler, settings, connection_id);
+                        conn.open();
+                        entry.insert(conn);
+                        //TODO connected to do on_open() function
                         break
                     }
                 } else {
@@ -173,45 +180,38 @@ impl<F> Handler<F>
                             format!("Unable to obtain any socket address for {}", url)));
                 }
             }
-
+            
             (tok, addresses)
         };
-
-        if url.scheme() == "wss" {
-            let error = Error::new(Kind::Protocol, "The ssl feature is not enabled. Please enable it to use wss urls.");
-            let handler = self.connections.remove(tok).unwrap().consume();
-            self.factory.connection_lost(handler);
-            return Err(error);
-        }
-
+        
         if let Err(error) = self.connections[tok].as_client(url, addresses) {
             let handler = self.connections.remove(tok).unwrap().consume();
             self.factory.connection_lost(handler);
             return Err(error);
         }
-
+        
         poll.register(
             self.connections[tok].socket(),
             self.connections[tok].token(),
             self.connections[tok].events(),
             PollOpt::edge() | PollOpt::oneshot(),
         ).map_err(Error::from).or_else(|err| {
-            error!("Encountered error while trying to build WebSocket connection: {}", err);
+            error!("Encountered error while trying to build socket connection: {}", err);
             let handler = self.connections.remove(tok).unwrap().consume();
             self.factory.connection_lost(handler);
             Err(err)
         })
     }
-
-
+    
+    
     pub fn accept(&mut self, poll: &mut Poll, sock: TcpStream) -> Result<()> {
         let factory = &mut self.factory;
         let settings = self.settings;
-
+        
         if settings.tcp_nodelay {
             sock.set_nodelay(true)?
         }
-
+        
         let tok = {
             if let Some(entry) = self.connections.vacant_entry() {
                 let tok = entry.index();
@@ -224,11 +224,11 @@ impl<F> Handler<F>
                 return Err(Error::new(Kind::Capacity, "Unable to add another connection to the event loop."));
             }
         };
-
+        
         let conn = &mut self.connections[tok];
-
-        conn.as_server()?;
-
+        
+        conn.as_server()?;//监听可读
+        
         let ret: Result<()> = poll.register(
             conn.socket(),
             conn.token(),
@@ -245,8 +245,9 @@ impl<F> Handler<F>
             Ok(())
         });
         ret?;
-
+        
         //open connection on_open() to change state
+        trace!("acecept new connection");
         conn.open().map_err(Error::from).or_else(|err| {
             error!("Encountered error while trying to build socket connection: {}", err);
             conn.error(err);
@@ -256,21 +257,21 @@ impl<F> Handler<F>
             Ok(())
         })
     }
-
+    
     pub fn run(&mut self, poll: &mut Poll) -> Result<()> {
         trace!("Running event loop");
         poll.register(&self.queue_rx, QUEUE, Ready::readable(), PollOpt::edge() | PollOpt::oneshot())?;
         poll.register(&self.timer, TIMER, Ready::readable(), PollOpt::edge())?;
-
+        
         self.state = State::Active;
         let result = self.event_loop(poll);
         self.state = State::Inactive;
-
+        
         result
             .and(poll.deregister(&self.timer).map_err(|e| Error::from(e)))
             .and(poll.deregister(&self.queue_rx).map_err(|e| Error::from(e)))
     }
-
+    
     #[inline]
     fn event_loop(&mut self, poll: &mut Poll) -> Result<()> {
         let mut events = mio::Events::with_capacity(MAX_EVENTS);
@@ -294,23 +295,23 @@ impl<F> Handler<F>
                 }
             };
             trace!("Processing {} events", nevents);
-
+            
             for i in 0..nevents {
                 let evt = events.get(i).unwrap();
                 self.handle_event(poll, evt.token(), evt.kind());
             }
-
+            
             self.check_count();
         }
         Ok(())
     }
-
+    
     #[inline]
     fn schedule(&self, poll: &mut Poll, conn: &Conn<F>) -> Result<()> {
         trace!("Scheduling connection to {} as {:?}", conn.socket().peer_addr().map(|addr| addr.to_string()).unwrap_or("UNKNOWN".into()), conn.events());
         Ok(poll.reregister(conn.socket(), conn.token(), conn.events(), PollOpt::edge() | PollOpt::oneshot())?)
     }
-
+    
     fn shutdown(&mut self) {
         debug!("Received shutdown signal. socket is attempting to shut down.");
         for conn in self.connections.iter_mut() {
@@ -322,7 +323,7 @@ impl<F> Handler<F>
             panic!("Panicking on shutdown as per setting.")
         }
     }
-
+    
     #[inline]
     fn check_active(&mut self, poll: &mut Poll, active: bool, token: Token) {
         // NOTE: Closing state only applies after a ws connection was successfully
@@ -346,12 +347,12 @@ impl<F> Handler<F>
             }).unwrap()
         }
     }
-
+    
     #[inline]
     fn is_client(&self) -> bool {
         self.listener.is_none()
     }
-
+    
     #[inline]
     fn check_count(&mut self) {
         trace!("Active connections {:?}", self.connections.len());
@@ -365,7 +366,7 @@ impl<F> Handler<F>
             }
         }
     }
-
+    
     fn handle_event(&mut self, poll: &mut Poll, token: Token, events: Ready) {
         match token {
             SYSTEM => {
@@ -397,7 +398,7 @@ impl<F> Handler<F>
                 }
             }
             QUEUE => {
-                //接受服务的发的数据，服务发的数据都是通过chanel一起发的。
+                //监听的队列事件发生，接受服务的发的数据，服务发的数据都是通过chanel一起发的。
                 for _ in 0..MESSAGES_PER_TICK {
                     match self.queue_rx.try_recv() {
                         Ok(cmd) => self.handle_queue(poll, cmd),
@@ -407,11 +408,11 @@ impl<F> Handler<F>
                 let _ = poll.reregister(&self.queue_rx, QUEUE, Ready::readable(), PollOpt::edge() | PollOpt::oneshot());
             }
             _ => {
-                //接收对方发来过的数据。
+                //监听的socket事件发生。
                 let active = {
                     let conn_events = self.connections[token].events();
-
                     if (events & conn_events).is_readable() {
+                        //可读
                         if let Err(err) = self.connections[token].read() {
                             //读数据，
                             trace!("Encountered error while reading: {}", err);
@@ -444,10 +445,11 @@ impl<F> Handler<F>
                             self.connections[token].error(err)
                         }
                     }
-
+                    
                     let conn_events = self.connections[token].events();
-
+                    
                     if (events & conn_events).is_writable() {
+                        //可写
                         if let Err(err) = self.connections[token].write() {
                             //write data
                             trace!("Encountered error while writing: {}", err);
@@ -480,16 +482,16 @@ impl<F> Handler<F>
                             self.connections[token].error(err)
                         }
                     }
-
+                    
                     // connection events may have changed
                     self.connections[token].events().is_readable() || self.connections[token].events().is_writable()
                 };
-
+                
                 self.check_active(poll, active, token)
             }
         }
     }
-
+    
     fn handle_queue(&mut self, poll: &mut Poll, cmd: Command) {
         match cmd.token() {
             SYSTEM => {
@@ -498,8 +500,8 @@ impl<F> Handler<F>
             ALL => {
                 //broadcasting message with type
                 let mut dead = Vec::with_capacity(self.connections.len());
-
-                match cmd.into_signal() {
+                
+                match cmd.signal() {
                     Signal::Message(msg) => {
                         trace!("Broadcasting message: {:?}", msg);
                         for conn in self.connections.iter_mut() {
@@ -516,7 +518,7 @@ impl<F> Handler<F>
                             }
                         }
                     }
-
+                    
                     Signal::Connect(url) => {
                         if let Err(err) = self.connect(poll, url.clone()) {
                             if self.settings.panic_on_new_connection {
@@ -555,7 +557,7 @@ impl<F> Handler<F>
                         return;
                     }
                 }
-
+                
                 for conn in self.connections.iter() {
                     if let Err(err) = self.schedule(poll, conn) {
                         dead.push((conn.token(), err))
@@ -566,11 +568,11 @@ impl<F> Handler<F>
                     self.connections[token].error(err)
                 }
             }
-
+            
             token => {
                 //single socket send message
                 let connection_id = cmd.connection_id();
-                match cmd.into_signal() {
+                match cmd.signal() {
                     Signal::Message(msg) => {
                         if let Some(conn) = self.connections.get_mut(token) {
                             if conn.connection_id() == connection_id {
@@ -597,7 +599,7 @@ impl<F> Handler<F>
                             trace!("Connection disconnected while close signal was waiting in the queue.")
                         }
                     }
-
+                    
                     Signal::Connect(url) => {
                         if let Err(err) = self.connect(poll, url.clone()) {
                             if let Some(conn) = self.connections.get_mut(token) {
@@ -643,7 +645,7 @@ impl<F> Handler<F>
                         return;
                     }
                 }
-
+                
                 if let Some(_) = self.connections.get(token) {
                     if let Err(err) = self.schedule(poll, &self.connections[token]) {
                         self.connections[token].error(err)
@@ -652,15 +654,15 @@ impl<F> Handler<F>
             }
         }
     }
-
-
+    
+    
     fn handle_timeout(&mut self, poll: &mut Poll, Timeout { connection, event }: Timeout) {
         let active = {
             if let Some(conn) = self.connections.get_mut(connection) {
                 if let Err(err) = conn.timeout_triggered(event) {
                     conn.error(err)
                 }
-
+                
                 conn.events().is_readable() || conn.events().is_writable()
             } else {
                 trace!("Connection disconnected while timeout was waiting.");

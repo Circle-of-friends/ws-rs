@@ -36,7 +36,7 @@ pub enum State {
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Endpoint {
     /// Will mask outgoing frames
-    Client(url::Url),
+    Client(String),
     /// Won't mask outgoing frames
     Server,
 }
@@ -49,7 +49,7 @@ impl State {
             _ => false,
         }
     }
-
+    
     #[allow(dead_code)]
     #[inline]
     pub fn is_open(&self) -> bool {
@@ -58,7 +58,7 @@ impl State {
             _ => false,
         }
     }
-
+    
     #[inline]
     pub fn is_closing(&self) -> bool {
         match *self {
@@ -74,28 +74,22 @@ pub struct Connection<H>
 {
     token: Token,
     socket: Stream,
-    //数据流。
-    state: State,
     //当前连接的活动状态。
+    state: State,
+    //对端的信息
     endpoint: Endpoint,
     events: Ready,
-    //当前连接的准备情况。
-
-    //    fragments: VecDeque<Frame>,
-
     in_buffer: Cursor<Vec<u8>>,
     out_buffer: Cursor<Vec<u8>>,
-
-    handler: H,
     //这个是重要的，不同的协议需要实现不同的Handler
-
+    handler: H,
+    //连接的对端地址。
     addresses: Vec<SocketAddr>,
-    //连接的地址。
-
-    settings: Settings,
     //配置情况
-    connection_id: u32,
+    settings: Settings,
     //连接id,可能会出现同一个socket，不同id的情况。
+    connection_id: u32,
+    
 }
 
 impl<H> Connection<H>
@@ -119,47 +113,52 @@ impl<H> Connection<H>
             connection_id: connection_id
         }
     }
-
+    
     pub fn open(&mut self) -> Result<()> {
-        info!("----accept socket--{:?}",self.token);
+        trace!("accept socket{:?}", self.token);
         if let Connecting(ref req, ref res) = replace(&mut self.state, Open) {
-            trace!("Finished writing handshake response to {}", self.peer_addr());
+            trace!("accept new socket change state connecting  to open {}", self.peer_addr());
             return Ok(());
         } else {
-            Err(Error::new(Kind::Internal, "Tried to write WebSocket handshake while not in connecting state!"))
+            Err(Error::new(Kind::Internal, "Tried to write socket while not in connecting state!"))
         }
     }
-
+    
     pub fn as_server(&mut self) -> Result<()> {
+        trace!("new server socket half ");
         Ok(self.events.insert(Ready::readable()))
     }
-
-    pub fn as_client(&mut self, url: url::Url, addrs: Vec<SocketAddr>) -> Result<()> {
-        if let Connecting(ref mut req_buf, _) = self.state {
-            self.addresses = addrs;
-            self.events.insert(Ready::writable());
-            self.endpoint = Endpoint::Client(url);
-            //            req.format(req_buf.get_mut())
-            Ok(())
-        } else {
-            Err(Error::new(
-                Kind::Internal,
-                "Tried to set connection to client while not connecting."))
+    
+    pub fn as_client(&mut self, url: String, addrs: Vec<SocketAddr>) -> Result<()> {
+        trace!("new client socket half ");
+        match self.state {
+            State::Open => {
+                self.addresses = addrs;
+                self.events.insert(Ready::readable());//监听可读
+                self.endpoint = Endpoint::Client(url);
+                Ok(())
+            }
+            
+            _ => {
+                Err(Error::new(
+                    Kind::Internal,
+                    "Tried to set connection to client while not connecting."))
+            }
         }
     }
-
+    
     pub fn token(&self) -> Token {
         self.token
     }
-
+    
     pub fn socket(&self) -> &TcpStream {
         self.socket.evented()
     }
-
+    
     pub fn connection_id(&self) -> u32 {
         self.connection_id
     }
-
+    
     fn peer_addr(&self) -> String {
         if let Ok(addr) = self.socket.peer_addr() {
             addr.to_string()
@@ -167,8 +166,8 @@ impl<H> Connection<H>
             "UNKNOWN".into()
         }
     }
-
-
+    
+    
     pub fn reset(&mut self) -> Result<()> {
         //// Tcp connection accepted, waiting for handshake to complete????
         if self.is_client() {
@@ -177,7 +176,6 @@ impl<H> Connection<H>
                 res.set_position(0);
                 self.events.remove(Ready::readable());
                 self.events.insert(Ready::writable());
-
                 if let Some(ref addr) = self.addresses.pop() {
                     let sock = try!(TcpStream::connect(addr));
                     Ok(self.socket = Stream::tcp(sock))
@@ -194,25 +192,25 @@ impl<H> Connection<H>
             Err(Error::new(Kind::Internal, "Server connections cannot be reset."))
         }
     }
-
+    
     pub fn events(&self) -> Ready {
         self.events
     }
-
+    
     pub fn is_client(&self) -> bool {
         match self.endpoint {
             Client(_) => true,
             Server => false,
         }
     }
-
+    
     pub fn is_server(&self) -> bool {
         match self.endpoint {
             Client(_) => false,
             Server => true,
         }
     }
-
+    
     pub fn shutdown(&mut self) {
         self.handler.on_shutdown();
         if let Err(err) = self.send_close(CloseCode::Away, "Shutting down.") {
@@ -220,17 +218,17 @@ impl<H> Connection<H>
             self.disconnect()
         }
     }
-
+    
     #[inline]
     pub fn new_timeout(&mut self, event: Token, timeout: Timeout) -> Result<()> {
         self.handler.on_new_timeout(event, timeout)
     }
-
+    
     #[inline]
     pub fn timeout_triggered(&mut self, event: Token) -> Result<()> {
         self.handler.on_timeout(event)
     }
-
+    
     pub fn error(&mut self, err: Error) {
         match self.state {
             Connecting(_, ref mut res) => {
@@ -286,7 +284,7 @@ impl<H> Connection<H>
                             panic!("Panicking on internal error -- {}", err);
                         }
                         let reason = format!("{}", err);
-
+                        
                         self.handler.on_error(err);
                         if let Err(err) = self.send_close(CloseCode::Error, reason) {
                             self.handler.on_error(err);
@@ -298,7 +296,7 @@ impl<H> Connection<H>
                             panic!("Panicking on capacity error -- {}", err);
                         }
                         let reason = format!("{}", err);
-
+                        
                         self.handler.on_error(err);
                         if let Err(err) = self.send_close(CloseCode::Size, reason) {
                             self.handler.on_error(err);
@@ -310,7 +308,7 @@ impl<H> Connection<H>
                             panic!("Panicking on protocol error -- {}", err);
                         }
                         let reason = format!("{}", err);
-
+                        
                         self.handler.on_error(err);
                         if let Err(err) = self.send_close(CloseCode::Protocol, reason) {
                             self.handler.on_error(err);
@@ -322,7 +320,7 @@ impl<H> Connection<H>
                             panic!("Panicking on encoding error -- {}", err);
                         }
                         let reason = format!("{}", err);
-
+                        
                         self.handler.on_error(err);
                         if let Err(err) = self.send_close(CloseCode::Invalid, reason) {
                             self.handler.on_error(err);
@@ -361,7 +359,7 @@ impl<H> Connection<H>
             }
         }
     }
-
+    
     pub fn disconnect(&mut self) {
         match self.state {
             RespondingClose | FinishedClose | Connecting(_, _) => (),
@@ -371,22 +369,21 @@ impl<H> Connection<H>
         }
         self.events = Ready::empty()
     }
-
+    
     pub fn consume(self) -> H {
         self.handler
     }
-
-
+    
+    
     pub fn read(&mut self) -> Result<()> {
         if self.socket.is_negotiating() {
             trace!("Performing TLS negotiation on {}.", self.peer_addr());
             self.socket.clear_negotiating()?;
-            self.write()
+            Ok(())
         } else {
-            let res = if self.state.is_connecting() {
-                trace!("Ready to read handshake from {}.", self.peer_addr());
-                //                self.read_handshake()
-                Ok(())
+            if self.state.is_connecting() {
+                trace!("connect state not change {}.", self.peer_addr());
+                Err(Error::new(Kind::Internal, "connect state not change"))
             } else {
                 trace!("Ready to read messages from {}.", self.peer_addr());
                 while let Some(len) = self.buffer_in()? {
@@ -401,16 +398,10 @@ impl<H> Connection<H>
                     }
                 }
                 Ok(())
-            };
-
-            if self.socket.is_negotiating() && res.is_ok() {
-                self.events.remove(Ready::readable());
-                self.events.insert(Ready::writable());
             }
-            res
         }
     }
-
+    
     fn read_data(&mut self) -> Result<()> {
         //读取数据。
         let mut buffer = Vec::new();
@@ -423,49 +414,48 @@ impl<H> Connection<H>
             Err(err) => Err(Error::from(err))
         }
     }
-
+    
     pub fn write(&mut self) -> Result<()> {
         if self.socket.is_negotiating() {
             trace!("Performing TLS negotiation on {}.", self.peer_addr());
-            self.socket.clear_negotiating()?;
-            self.read()
+            self.socket.clear_negotiating()
         } else {
             let res = if self.state.is_connecting() {
-                trace!("Ready to write handshake to {}.", self.peer_addr());
-                //                self.write_handshake()
-                Ok(())
+                trace!("connect state not change {}.", self.peer_addr());
+                Err(Error::new(Kind::Internal, "connect state not change"))
             } else {
                 trace!("Ready to write messages to {}.", self.peer_addr());
-
+                
                 // Start out assuming that this write will clear the whole buffer
                 self.events.remove(Ready::writable());
-
-                if let Some(len) = self.socket.try_write_buf(&mut self.out_buffer)? {
+                //写的数据，返回写的长度，错误码已经返回值的形式，发送给对方。
+                trace!("---------------======postions {:?}-",self.out_buffer.position());
+                
+                if let Some(len) = try!(self.socket.try_write_buf(&mut self.out_buffer)) {
                     trace!("Wrote {} bytes to {}", len, self.peer_addr());
-                    let finished = len == 0 || self.out_buffer.position() == self.out_buffer.get_ref().len() as u64;
-                    if finished {
-                        //write error
+                    if len == 0 {
                         match self.state {
-                            // we are a server that is closing and just wrote out our confirming
+                            // we are are a server that is closing and just wrote out our confirming
                             // close frame, let's disconnect
                             FinishedClose if self.is_server() => return Ok(self.events = Ready::empty()),
                             _ => (),
                         }
                     }
                 }
-
+                
                 // Check if there is more to write so that the connection will be rescheduled
                 Ok(self.check_events())
             };
-
+            
             if self.socket.is_negotiating() && res.is_ok() {
+                //这个一般不会执行
                 self.events.remove(Ready::writable());
                 self.events.insert(Ready::readable());
             }
             res
         }
     }
-
+    
     pub fn send_message(&mut self, msg: Message) -> Result<()> {
         if self.state.is_closing() {
             trace!("Connection is closing. Ignoring request to send message {:?} to {}.",
@@ -473,19 +463,26 @@ impl<H> Connection<H>
                    self.peer_addr());
             return Ok(());
         }
-
+        
         let opcode = msg.opcode();
         trace!("Message opcode {:?}", opcode);
         let data = msg.into_data();
-        self.buffer_frame(data).map_err(|err| {
-            err
-        }).map(|_| {
-            self.check_events();
-            ()
-        })
+        
+        
+        self.check_buffer_out(&data)?;//检查输出buffer容量，不够则扩充容量。
+        trace!("Buffering frame to {} : {:?}", self.peer_addr(), data);
+        //TODO 写数据。
+        match self.out_buffer.write(&data) {
+            //这里的一定是满足的。
+            Ok(buffer_size) => {
+                //TODO
+                Ok(self.check_events())
+            }
+            Err(err) => Err(Error::from(err))
+        }
     }
-
-
+    
+    
     #[inline]
     pub fn send_close<R>(&mut self, code: CloseCode, reason: R) -> Result<()>
                          where R: Borrow<str>
@@ -508,40 +505,31 @@ impl<H> Connection<H>
                 debug_assert!(false, "Attempted to close connection while not yet open.")
             }
         }
-
+        
         trace!("Sending close {:?} -- {:?} to {}.", code, reason.borrow(), self.peer_addr());
-
+        
         //TODO 关闭的错误原因。通知对方，为什么，是什么原因关闭。
         //        if let Some(frame) = try!(self.handler.buffer_frame(Frame::close(code, reason.borrow()))) {
         //            try!(self.buffer_frame(frame));
         //        }
-
+        
         trace!("Connection to {} is now closing.", self.peer_addr());
-
+        
         Ok(self.check_events())
     }
-
+    
     fn check_events(&mut self) {
+        //通过事件来产生读写的，都是以回调的方式，
         if !self.state.is_connecting() {
             self.events.insert(Ready::readable());
-            if self.out_buffer.position() < self.out_buffer.get_ref().len() as u64 {
+            if self.out_buffer.get_ref().len() > 0 {
+                trace!("-----------check_event----{:?}-----{:?}-", self.out_buffer.get_ref().len(), self.out_buffer.get_ref());
                 self.events.insert(Ready::writable());
             }
         }
     }
-
-    fn buffer_frame(&mut self, mut frame: Vec<u8>) -> Result<()> {
-        self.check_buffer_out(&frame)?;
-        trace!("Buffering frame to {}:\n{:?}", self.peer_addr(), frame);
-
-        //TODO 读写数据。
-        match self.out_buffer.write(&frame) {
-            Ok(buffer_size) => { Ok(()) }//TODO
-            Err(err) => Err(Error::from(err))
-        }
-    }
-
-
+    
+    
     fn check_buffer_out(&mut self, frame: &Vec<u8>) -> Result<()> {
         if self.out_buffer.get_ref().capacity() <= self.out_buffer.get_ref().len() + frame.len() {
             // extend
@@ -558,7 +546,7 @@ impl<H> Connection<H>
         }
         Ok(())
     }
-
+    
     fn buffer_in(&mut self) -> Result<Option<usize>> {
         //input buffer
         trace!("Reading buffer for connection to {}.", self.peer_addr());
@@ -568,6 +556,7 @@ impl<H> Connection<H>
                 // extend
                 let mut new = Vec::with_capacity(self.in_buffer.get_ref().capacity());
                 new.extend(&self.in_buffer.get_ref()[self.in_buffer.position() as usize..]);
+                
                 if new.len() == new.capacity() {
                     if self.settings.in_buffer_grow {
                         new.reserve(self.settings.in_buffer_capacity);

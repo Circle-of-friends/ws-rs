@@ -2,38 +2,35 @@
 /// so will allow you to see more details about the connection by using the RUST_LOG env variable.
 
 extern crate ws;
+#[macro_use]
+extern crate log;
 extern crate env_logger;
 
 use ws::{connect, CloseCode};
 
-fn main () {
-
+fn main() {
     // Setup logging
     env_logger::init().unwrap();
-
+    
     // Connect to the url and call the closure
-    if let Err(error) = connect("ws://127.0.0.1:3012", |out| {
-
+    if let Err(error) = connect("127.0.0.1:3012".to_string(), |out| {
         // Queue a message to be sent when the WebSocket is open
-        if let Err(_) = out.send("Hello WebSocket") {
+        if let Err(_) = out.send("Hello") {
             println!("Websocket couldn't queue an initial message.")
         } else {
             println!("Client sent message 'Hello WebSocket'. ")
         }
-
+        
         // The handler needs to take ownership of out, so we use move
         move |msg| {
-
             // Handle messages received on this connection
             println!("Client got message '{}'. ", msg);
-
+            
             // Close the connection
             out.close(CloseCode::Normal)
         }
-
     }) {
         // Inform the user of failure
         println!("Failed to create WebSocket due to: {:?}", error);
     }
-
 }
