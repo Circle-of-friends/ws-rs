@@ -106,6 +106,7 @@ impl<F> Handler for F
     where F: Fn(Message) -> Result<()>
 {
     fn on_message(&mut self, msg: Message) -> Result<()> {
+        trace!("Fn on_message {:?}",msg);
         self(msg)
     }
 }

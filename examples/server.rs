@@ -17,7 +17,7 @@ fn main() {
         // The handler needs to take ownership of out, so we use move
         move |msg| {
             // Handle messages received on this connection
-            println!("Server got message '{}'. ", msg);
+            info!("Server got message '{}'. ", msg);
             
             // Use the out channel to send messages back
             out.send(msg)
